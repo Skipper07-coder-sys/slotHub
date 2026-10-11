@@ -64,9 +64,51 @@ jobs:
           path: ${{ steps.package.outputs.zip }}
           if-no-files-found: error
 
+  image:
+    name: flashable image
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      BASEOS_VERSION: '1.3.0'
+      DEVICE: rg34xxsp
+    outputs:
+      img: ${{ steps.image.outputs.img }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.build.outputs.zip }}
+
+      - name: Fetch BaseOS
+        run: |
+          set -eu
+          curl -fsSL -o baseos.zip \
+            "https://github.com/pvaibhav/BaseOS/releases/download/v${BASEOS_VERSION}/baseos-${DEVICE}-${BASEOS_VERSION}.img.zip"
+          unzip -q baseos.zip
+
+      - name: Bake slot into the image
+        id: image
+        env:
+          ZIP: ${{ needs.build.outputs.zip }}
+        run: |
+          set -eu
+          unzip -q "$ZIP" -d tree
+          img="slot-${GITHUB_REF_NAME}-${DEVICE}.img"
+          image/make-image.sh "baseos-${DEVICE}.img" tree/slot-${GITHUB_REF_NAME} image/defaults "$img"
+          zip -qj "$img.zip" "$img"
+          echo "img=$img.zip" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.image.outputs.img }}
+          path: ${{ steps.image.outputs.img }}
+          if-no-files-found: error
+          compression-level: 0
+
   publish:
     name: release
-    needs: build
+    needs: [build, image]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
@@ -76,16 +118,23 @@ jobs:
         with:
           name: ${{ needs.build.outputs.zip }}
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.image.outputs.img }}
+
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
           ZIP: ${{ needs.build.outputs.zip }}
+          IMG: ${{ needs.image.outputs.img }}
         run: |
           set -eu
           cat > notes.md <<NOTES
-          Unzip and copy the contents of \`slot-${GITHUB_REF_NAME}/\` onto SD2.
+          New card: unzip \`${IMG}\` and flash the \`.img\` to SD1. First boot sets the card up with slot already on it.
+
+          Existing card: unzip and copy the contents of \`slot-${GITHUB_REF_NAME}/\` onto the card.
 
           Emulation by mGBA (MPL-2.0) and gpSP (GPL-2.0). Their licences, patches and gpSP's source are in \`System/licenses/\`.
           NOTES
-          gh release create "$GITHUB_REF_NAME" "$ZIP" --repo "$GITHUB_REPOSITORY" \
+          gh release create "$GITHUB_REF_NAME" "$ZIP" "$IMG" --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" --notes-file notes.md
