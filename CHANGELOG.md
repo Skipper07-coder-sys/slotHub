@@ -5,6 +5,7 @@
 Changes in this fork, on top of slot 1.6.0.
 
 - Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
+- The LCD3x screen shader has softer colour stripes and a slightly brighter picture (brighten_lcd 7.0 instead of 4.0), matching the lcd3x preset this RG34XXSP used under RetroArch on Knulli.
 
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
 

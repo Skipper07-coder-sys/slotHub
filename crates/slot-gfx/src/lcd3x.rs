@@ -1,7 +1,7 @@
 use std::f32::consts::PI;
 
 const BRIGHTEN_SCANLINES: f32 = 16.0;
-const BRIGHTEN_LCD: f32 = 4.0;
+const BRIGHTEN_LCD: f32 = 7.0;
 const OFFSETS: [f32; 3] = [PI / 2.0, PI * (0.5 - 2.0 / 3.0), PI * (0.5 - 4.0 / 3.0)];
 
 pub fn lcd3x_factors(x: f32, y: f32) -> [f32; 3] {
