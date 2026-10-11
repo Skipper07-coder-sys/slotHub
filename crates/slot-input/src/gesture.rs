@@ -82,6 +82,7 @@ pub struct Gestures {
     r2_refused: bool,
     r2_last_release: Option<Millis>,
     rewinding: bool,
+    pure: bool,
 }
 
 fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
@@ -97,6 +98,13 @@ fn ramp_due(down: Option<Millis>, last: Option<Millis>, now: Millis) -> bool {
 impl Gestures {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn pure() -> Self {
+        Gestures {
+            pure: true,
+            ..Self::default()
+        }
     }
 
     pub fn ff_latched(&self) -> bool {
@@ -161,7 +169,7 @@ impl Gestures {
     }
 
     fn down(&mut self, b: Btn, now: Millis) -> Vec<Action> {
-        if let (true, Some((bit, action))) = (self.chording(now), chord(b)) {
+        if let (true, Some((bit, action))) = (self.chording(now), self.chord_for(b)) {
             self.mark_chorded();
             self.chord_held |= bit;
             return vec![action];
@@ -176,6 +184,7 @@ impl Gestures {
             }
             Btn::Lid => vec![Action::LidClose],
             Btn::VolUp | Btn::VolDown => self.volume_press(b, now),
+            Btn::L2 | Btn::R2 if self.pure => Vec::new(),
             Btn::L2 => self.rewind_start(),
             Btn::R2 => self.ff_down(now),
             _ => {
@@ -187,7 +196,7 @@ impl Gestures {
     }
 
     fn up(&mut self, b: Btn, now: Millis) -> Vec<Action> {
-        if let Some((bit, _)) = chord(b) {
+        if let Some((bit, _)) = self.chord_for(b) {
             if self.chord_held & bit != 0 {
                 self.chord_held &= !bit;
                 return Vec::new();
@@ -199,10 +208,17 @@ impl Gestures {
             Btn::Power => self.power_up(),
             Btn::Lid => vec![Action::LidOpen],
             Btn::VolUp | Btn::VolDown => self.volume_release(b),
+            Btn::L2 | Btn::R2 if self.pure => Vec::new(),
             Btn::L2 => self.rewind_stop(),
             Btn::R2 => self.ff_up(now),
             _ => vec![Action::GbaUp(b)],
         }
+    }
+
+    fn chord_for(&self, b: Btn) -> Option<(u16, Action)> {
+        chord(b).filter(|(_, action)| {
+            !(self.pure && matches!(action, Action::LoadState | Action::SaveState))
+        })
     }
 
     fn chording(&self, now: Millis) -> bool {
@@ -276,7 +292,7 @@ impl Gestures {
             self.menu_last_tap = None;
             return vec![Action::GameMenu];
         }
-        if let Some(tap) = self.menu_last_tap {
+        if let Some(tap) = self.menu_last_tap.filter(|_| !self.pure) {
             if now.saturating_sub(tap) <= MENU_DOUBLE_TAP_MS {
                 self.menu_last_tap = None;
                 self.menu_down_at = None;

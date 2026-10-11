@@ -534,3 +534,78 @@ fn select_and_either_volume_key_mutes_for_a_volume_wheel_with_no_chord() {
         );
     }
 }
+
+#[test]
+fn pure_hands_select_and_a_shoulder_to_the_game_instead_of_saving_a_state() {
+    for (shoulder, state) in [(R1, SaveState), (L1, LoadState)] {
+        let mut g = Gestures::pure();
+        assert!(g.feed(Down(Select), 0).is_empty());
+        let pressed = g.feed(Down(shoulder), 50);
+        assert!(!pressed.contains(&state), "{state:?} got through");
+        assert_eq!(pressed, vec![GbaDown(Select), GbaDown(shoulder)]);
+        assert_eq!(g.feed(Up(shoulder), 60), vec![GbaUp(shoulder)]);
+        assert_eq!(g.feed(Up(Select), 900), vec![GbaUp(Select)]);
+    }
+}
+
+#[test]
+fn pure_keeps_the_chords_that_only_touch_the_screen_and_sound() {
+    for (key, want) in [
+        (Btn::Up, BrightnessUp),
+        (Btn::Down, BrightnessDown),
+        (Left, BlueLightDown),
+        (Right, BlueLightUp),
+        (A, ShaderNext),
+        (B, ShaderPrev),
+        (Y, ColourCorrectionToggle),
+        (L2, PalettePrev),
+        (R2, PaletteNext),
+    ] {
+        let mut g = Gestures::pure();
+        assert!(g.feed(Down(Select), 0).is_empty());
+        assert_eq!(g.feed(Down(key), 50), vec![want], "SELECT + {key:?}");
+        assert!(g.feed(Up(key), 60).is_empty());
+        assert!(g.feed(Up(Select), 70).is_empty());
+    }
+}
+
+#[test]
+fn pure_has_no_fast_forward_on_r2_held_tapped_or_double_tapped() {
+    let mut g = Gestures::pure();
+    assert!(g.feed(Down(R2), 0).is_empty(), "a held R2 did something");
+    assert!(g.tick(2_000).is_empty());
+    assert!(g.feed(Up(R2), 2_010).is_empty());
+    assert!(g.feed(Down(R2), 2_050).is_empty(), "a double tap latched");
+    assert!(g.feed(Up(R2), 2_060).is_empty());
+    assert!(!g.ff_latched());
+    assert!(g.drop_ff_latch().is_empty());
+}
+
+#[test]
+fn pure_has_no_rewind_on_l2() {
+    let mut g = Gestures::pure();
+    assert!(g.feed(Down(L2), 0).is_empty());
+    assert!(g.tick(2_000).is_empty());
+    assert!(g.feed(Up(L2), 2_010).is_empty());
+}
+
+#[test]
+fn pure_has_no_state_switcher_on_a_double_tap_of_menu() {
+    let mut g = Gestures::pure();
+    assert!(g.feed(Down(Menu), 0).is_empty());
+    assert_eq!(g.feed(Up(Menu), 40), vec![QuickMenu]);
+    let second = g.feed(Down(Menu), 120);
+    assert!(!second.contains(&Polaroids), "the switcher opened");
+    assert!(second.is_empty());
+    assert_eq!(g.feed(Up(Menu), 160), vec![QuickMenu]);
+}
+
+#[test]
+fn pure_still_ejects_on_a_held_menu_even_straight_after_a_tap() {
+    let mut g = Gestures::pure();
+    g.feed(Down(Menu), 0);
+    g.feed(Up(Menu), 40);
+    assert!(g.feed(Down(Menu), 120).is_empty());
+    assert_eq!(g.tick(120 + MENU_HOLD_MS), vec![Eject]);
+    assert!(g.feed(Up(Menu), 200 + MENU_HOLD_MS).is_empty());
+}

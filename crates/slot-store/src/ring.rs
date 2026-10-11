@@ -94,6 +94,18 @@ impl StateRing {
         }
     }
 
+    pub fn spend_resume(&self) -> std::io::Result<bool> {
+        let resume = self.path(RESUME, STATE_EXT);
+        match std::fs::remove_file(&resume) {
+            Ok(()) => {
+                sync_dir(&resume);
+                Ok(true)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn retire_resume(&self, stamp: &str) -> std::io::Result<Option<PathBuf>> {
         let from = self.path(RESUME, STATE_EXT);
         if !from.exists() {

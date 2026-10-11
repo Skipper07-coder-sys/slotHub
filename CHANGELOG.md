@@ -1,5 +1,11 @@
 # Changelog
 
+## slotHub
+
+Changes in this fork, on top of slot 1.6.0.
+
+- Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
+
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
 
 - Runs on the RG28XX: its panel is mounted portrait, so slot turns the picture onto it. (#35)

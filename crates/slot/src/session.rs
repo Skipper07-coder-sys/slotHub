@@ -40,12 +40,17 @@ impl Session {
     }
 
     pub fn boot_with(root: PathBuf, sink: Box<dyn AudioSink>) -> Self {
+        let app = App::boot(&root);
+        let gestures = match app.pure() {
+            true => Gestures::pure(),
+            false => Gestures::new(),
+        };
         Session {
-            app: App::boot(&root),
+            app,
             root,
             emu: None,
             sink,
-            gestures: Gestures::new(),
+            gestures,
             pad: Pad::default(),
             rewinding: false,
             fast: false,

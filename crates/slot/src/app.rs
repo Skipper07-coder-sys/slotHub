@@ -8,9 +8,9 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette, Platform, Shader,
-    SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX,
-    VOLUME_MAX,
+    format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette,
+    Platform, Shader, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX,
+    FF_SPEEDS, RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
@@ -298,6 +298,8 @@ pub struct App {
     act_at: Millis,
     root: Option<PathBuf>,
     state: SlotState,
+    pure: bool,
+    resume_unspent: bool,
     vol_before: Vec<(u8, bool, Millis)>,
     snapshot: Option<Box<dyn Snapshot>>,
     core: Core,
@@ -423,6 +425,8 @@ impl App {
             act_at: 0,
             root: None,
             state: SlotState::default(),
+            pure: false,
+            resume_unspent: false,
             vol_before: Vec::new(),
             snapshot: None,
             core: Core::default(),
@@ -483,6 +487,10 @@ impl App {
         let mut app = App::new(carts);
         app.root = Some(root.to_path_buf());
         app.state = read_slot_state(root);
+        app.pure = read_pure(root);
+        if app.pure {
+            eprintln!("slot: pure: on, from {}", slot_store::PURE_FILE);
+        }
         if app.state.clock_set {
             app.start();
         } else {
@@ -913,16 +921,20 @@ impl App {
         self.link.as_ref().map(|s| s.client_id)
     }
 
+    pub fn pure(&self) -> bool {
+        self.pure
+    }
+
     pub fn may_rewind(&self) -> bool {
-        self.state.rewind && !self.link_active()
+        !self.pure && self.state.rewind && !self.link_active()
     }
 
     pub fn turbo(&self) -> bool {
-        self.state.turbo
+        !self.pure && self.state.turbo
     }
 
     pub fn records_rewind(&self) -> bool {
-        self.state.rewind
+        !self.pure && self.state.rewind
     }
 
     pub fn picture_rect(&self) -> [f32; 4] {
@@ -933,11 +945,11 @@ impl App {
     }
 
     pub fn may_load_state(&self) -> bool {
-        !self.link_active()
+        !self.pure && !self.link_active()
     }
 
     pub fn may_fast_forward(&self) -> bool {
-        !self.link_active()
+        !self.pure && !self.link_active()
     }
 
     pub fn end_link(&mut self) {
@@ -1281,6 +1293,12 @@ impl App {
                 }
                 Action::Eject => self.eject(),
                 Action::GameMenu => self.game_menu_shortcut(),
+                Action::Polaroids
+                | Action::SaveState
+                | Action::LoadState
+                | Action::RewindStart
+                | Action::FfStart
+                    if self.pure => {}
                 Action::Polaroids => self.open_polaroids(),
                 Action::SaveState => self.save_state(),
                 Action::LoadState => self.load_newest(),
@@ -1315,8 +1333,8 @@ impl App {
 
     fn quick_menu_input(&mut self, row: QuickRow, action: Action) {
         let row = match action {
-            Action::GbaDown(Btn::Up) => row.up(),
-            Action::GbaDown(Btn::Down) => row.down(),
+            Action::GbaDown(Btn::Up) => row.up_in(self.pure),
+            Action::GbaDown(Btn::Down) => row.down_in(self.pure),
             Action::GbaDown(Btn::Left) => return self.change_setting(row, false),
             Action::GbaDown(Btn::Right) => return self.change_setting(row, true),
             Action::GbaDown(Btn::A) => return self.open_quick_row(row),
@@ -1339,7 +1357,7 @@ impl App {
             }
             QuickRow::About => self.phase = Phase::About,
             QuickRow::Screen | QuickRow::Game => {
-                if let Some(row) = row.child() {
+                if let Some(row) = row.child_in(self.pure) {
                     self.phase = Phase::QuickMenu { row };
                 }
             }
@@ -1357,6 +1375,9 @@ impl App {
     }
 
     fn change_setting(&mut self, row: QuickRow, right: bool) {
+        if self.pure && row.pure_locks() {
+            return;
+        }
         let s = &mut self.state;
         match row {
             QuickRow::FastForward => {
@@ -1673,6 +1694,7 @@ impl App {
             if seated.is_none() {
                 self.link_loaded = None;
             }
+            self.resume_unspent = seated.is_some();
             self.record_cart(seated);
         }
         self.step_screen(dt);
@@ -1750,6 +1772,7 @@ impl App {
         if self.now() >= self.autosave_at {
             self.autosave();
         }
+        self.spend_resume();
         if self.now() >= self.card_check_at {
             self.card_check_at = self.now() + CARD_CHECK_MS;
             self.card_read_only = self.power.as_ref().is_some_and(|p| p.card_read_only());
@@ -1994,6 +2017,7 @@ impl App {
             }
             Phase::QuickMenu { row } => QuickMenu {
                 row: *row,
+                pure: self.pure,
                 values: QuickRow::ALL.map(|r| self.quick_value(r)),
                 clock: self.quick_clock_faces,
                 faces: self.quick_menu_faces.as_ref(),
@@ -3032,11 +3056,15 @@ impl App {
         else {
             return;
         };
-        let Some(state) = snapshot.state() else {
-            eprintln!("slot: autosave: the core gave up no state");
-            return;
+        let (state, sav) = if self.pure {
+            (None, trusted_sav(snapshot.as_ref(), "autosave"))
+        } else {
+            let Some(state) = snapshot.state() else {
+                eprintln!("slot: autosave: the core gave up no state");
+                return;
+            };
+            trusted_write(snapshot.as_ref(), state, "autosave")
         };
-        let (state, sav) = trusted_write(snapshot.as_ref(), state, "autosave");
         let (root, platform, core, cart) =
             (root.clone(), self.platform, self.core, cart.to_owned());
         let failing = self.card_failing.clone();
@@ -3087,6 +3115,29 @@ impl App {
             eprintln!("slot: flush: {e}");
         }
         self.card_failing.store(written.is_err(), Ordering::Relaxed);
+        self.resume_unspent |= state.is_some();
+    }
+
+    fn resume_in_use(&self) -> bool {
+        matches!(self.phase, Phase::Playing { .. })
+            && self.power_menu.is_none()
+            && self.game_menu.is_none()
+            && self.reload.is_none()
+            && !self.shutting_down()
+    }
+
+    fn spend_resume(&mut self) {
+        if !(self.pure && self.resume_unspent && self.resume_in_use()) {
+            return;
+        }
+        self.resume_unspent = false;
+        let Some(ring) = self.ring() else {
+            return;
+        };
+        if let Err(e) = ring.spend_resume() {
+            eprintln!("slot: pure: could not spend the resume state: {e}");
+            self.card_failing.store(true, Ordering::Relaxed);
+        }
     }
 
     fn ring(&self) -> Option<StateRing> {
@@ -3367,18 +3418,20 @@ fn trusted_write(
         );
         None
     };
+    (state, trusted_sav(snapshot, verb))
+}
+
+fn trusted_sav(snapshot: &dyn Snapshot, verb: &str) -> Option<Vec<u8>> {
     let sav = snapshot.save_ram();
-    let sav = if snapshot.save_ram_trusted() {
-        sav
-    } else {
-        if sav.is_some() {
-            eprintln!(
-                "slot: {verb}: the core refused the save ram it was given, not overwriting the saved one"
-            );
-        }
-        None
-    };
-    (state, sav)
+    if snapshot.save_ram_trusted() {
+        return sav;
+    }
+    if sav.is_some() {
+        eprintln!(
+            "slot: {verb}: the core refused the save ram it was given, not overwriting the saved one"
+        );
+    }
+    None
 }
 
 fn up(level: u8, step: u8, max: u8) -> u8 {

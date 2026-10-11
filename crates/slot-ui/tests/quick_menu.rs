@@ -197,3 +197,47 @@ fn the_two_carets_point_different_ways() {
         "a caret glyph is missing from the symbols font"
     );
 }
+
+#[test]
+fn pure_trims_the_gameplay_page_and_no_other() {
+    assert_eq!(
+        QuickRow::GAME_PURE.map(QuickRow::label),
+        ["Rumble", "Auto Save on Eject"]
+    );
+    for row in QuickRow::GAME {
+        assert_eq!(row.page_in(true), &QuickRow::GAME_PURE[..], "{row:?}");
+        assert_eq!(row.page_in(false), &QuickRow::GAME[..], "{row:?}");
+        assert_eq!(
+            row.pure_locks(),
+            !QuickRow::GAME_PURE.contains(&row),
+            "{row:?}"
+        );
+    }
+    for page in [&QuickRow::MAIN[..], &QuickRow::SCREEN[..]] {
+        for &row in page {
+            assert_eq!(row.page_in(true), page, "{row:?}");
+            assert!(!row.pure_locks(), "pure locks {row:?}");
+            assert_eq!(row.position_in(true), row.position(), "{row:?}");
+            assert_eq!(row.up_in(true), row.up(), "{row:?}");
+            assert_eq!(row.down_in(true), row.down(), "{row:?}");
+        }
+    }
+}
+
+#[test]
+fn pure_opens_gameplay_on_a_row_it_keeps_and_never_leaves_them() {
+    assert_eq!(QuickRow::Game.child_in(false), Some(QuickRow::FastForward));
+    assert_eq!(QuickRow::Game.child_in(true), Some(QuickRow::Rumble));
+    assert_eq!(QuickRow::Screen.child_in(true), QuickRow::Screen.child());
+    assert_eq!(QuickRow::About.child_in(true), None);
+
+    assert_eq!(QuickRow::Rumble.position_in(true), 0);
+    assert_eq!(QuickRow::EjectSave.position_in(true), 1);
+    assert_eq!(QuickRow::Rumble.down_in(true), QuickRow::EjectSave);
+    assert_eq!(QuickRow::EjectSave.down_in(true), QuickRow::Rumble);
+    assert_eq!(QuickRow::Rumble.up_in(true), QuickRow::EjectSave);
+    assert_eq!(QuickRow::EjectSave.up_in(true), QuickRow::Rumble);
+    for row in QuickRow::GAME_PURE {
+        assert_eq!(row.parent(), Some(QuickRow::Game), "{row:?}");
+    }
+}

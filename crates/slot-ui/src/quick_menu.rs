@@ -63,11 +63,17 @@ impl QuickRow {
         QuickRow::EjectSave,
     ];
 
+    pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
+
     pub fn index(self) -> usize {
         self as usize
     }
 
     pub fn page(self) -> &'static [QuickRow] {
+        self.page_in(false)
+    }
+
+    pub fn page_in(self, pure: bool) -> &'static [QuickRow] {
         match self {
             QuickRow::GbaShader
             | QuickRow::GbShader
@@ -78,9 +84,16 @@ impl QuickRow {
             | QuickRow::Rewind
             | QuickRow::Turbo
             | QuickRow::Rumble
-            | QuickRow::EjectSave => &QuickRow::GAME,
+            | QuickRow::EjectSave => match pure {
+                true => &QuickRow::GAME_PURE,
+                false => &QuickRow::GAME,
+            },
             _ => &QuickRow::MAIN,
         }
+    }
+
+    pub fn pure_locks(self) -> bool {
+        QuickRow::GAME.contains(&self) && !QuickRow::GAME_PURE.contains(&self)
     }
 
     pub fn parent(self) -> Option<QuickRow> {
@@ -92,15 +105,29 @@ impl QuickRow {
     }
 
     pub fn child(self) -> Option<QuickRow> {
+        self.child_in(false)
+    }
+
+    pub fn child_in(self, pure: bool) -> Option<QuickRow> {
         match self {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
-            QuickRow::Game => Some(QuickRow::GAME[0]),
+            QuickRow::Game => Some(match pure {
+                true => QuickRow::GAME_PURE[0],
+                false => QuickRow::GAME[0],
+            }),
             _ => None,
         }
     }
 
     pub fn position(self) -> usize {
-        self.page().iter().position(|r| *r == self).unwrap_or(0)
+        self.position_in(false)
+    }
+
+    pub fn position_in(self, pure: bool) -> usize {
+        self.page_in(pure)
+            .iter()
+            .position(|r| *r == self)
+            .unwrap_or(0)
     }
 
     pub fn label(self) -> &'static str {
@@ -130,13 +157,21 @@ impl QuickRow {
     }
 
     pub fn up(self) -> QuickRow {
-        let page = self.page();
-        page[(self.position() + page.len() - 1) % page.len()]
+        self.up_in(false)
+    }
+
+    pub fn up_in(self, pure: bool) -> QuickRow {
+        let page = self.page_in(pure);
+        page[(self.position_in(pure) + page.len() - 1) % page.len()]
     }
 
     pub fn down(self) -> QuickRow {
-        let page = self.page();
-        page[(self.position() + 1) % page.len()]
+        self.down_in(false)
+    }
+
+    pub fn down_in(self, pure: bool) -> QuickRow {
+        let page = self.page_in(pure);
+        page[(self.position_in(pure) + 1) % page.len()]
     }
 }
 
@@ -296,6 +331,7 @@ pub struct QuickMenuFaces {
 
 pub struct QuickMenu<'a> {
     pub row: QuickRow,
+    pub pure: bool,
     pub values: [Option<QuickValue>; QuickRow::ALL.len()],
     pub clock: Option<[(TexId, u32, u32); 2]>,
     pub faces: Option<&'a QuickMenuFaces>,
@@ -312,7 +348,7 @@ impl QuickMenu<'_> {
         });
         out.push(Draw::Rect {
             x: 0.0,
-            y: row_top(self.row) + BAR_INSET,
+            y: row_top(self.row, self.pure) + BAR_INSET,
             w: OUT_W as f32,
             h: QUICK_PITCH - 2.0 * BAR_INSET,
             colour: edge(),
@@ -321,8 +357,8 @@ impl QuickMenu<'_> {
             return;
         };
         let (right, pad) = (OUT_W as f32 - QUICK_EDGE, MENU_PAD as f32);
-        for &row in self.row.page() {
-            let y = row_top(row) + TYPE_DROP;
+        for &row in self.row.page_in(self.pure) {
+            let y = row_top(row, self.pure) + TYPE_DROP;
             let lit = row == self.row;
             if let Some(&(tex, w, h)) = faces.labels.get(row.index()) {
                 push(out, tex, QUICK_EDGE - pad, y, w, h);
@@ -355,9 +391,9 @@ impl QuickMenu<'_> {
     }
 }
 
-fn row_top(row: QuickRow) -> f32 {
-    let top = (OUT_H as f32 - QUICK_PITCH * row.page().len() as f32) / 2.0;
-    top + QUICK_PITCH * row.position() as f32
+fn row_top(row: QuickRow, pure: bool) -> f32 {
+    let top = (OUT_H as f32 - QUICK_PITCH * row.page_in(pure).len() as f32) / 2.0;
+    top + QUICK_PITCH * row.position_in(pure) as f32
 }
 
 fn push(out: &mut Vec<Draw>, tex: TexId, x: f32, y: f32, w: u32, h: u32) {
