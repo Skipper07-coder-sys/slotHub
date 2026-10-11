@@ -8,7 +8,7 @@ const OUT_H: usize = 480;
 const SCALE: usize = 3;
 
 const BRIGHTEN_SCANLINES: f64 = 16.0;
-const BRIGHTEN_LCD: f64 = 4.0;
+const BRIGHTEN_LCD: f64 = 7.0;
 
 fn pseudorandom_240x160() -> Vec<u8> {
     let mut s: u32 = 0x9e37_79b9;

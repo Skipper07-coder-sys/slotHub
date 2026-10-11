@@ -106,7 +106,7 @@ void main() {
     } else if (u_mode > 0.5) {
         vec2 angle = f * 6.283185307;
         float yfactor = (16.0 + sin(angle.y)) / 17.0;
-        vec3 xfactors = (4.0 + sin(angle.x + offsets)) / 5.0;
+        vec3 xfactors = (7.0 + sin(angle.x + offsets)) / 8.0;
         c *= yfactor * xfactors;
     }
     FRAG_COLOR = vec4(c * u_bright, 1.0);

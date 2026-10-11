@@ -26,13 +26,16 @@ jobs:
           apt-get install -y --no-install-recommends zip cmake
           curl -fsSL https://taskfile.dev/install.sh | sh -s -- -b /usr/local/bin
 
+      - name: Name the tree
+        run: echo "OUT=slot-$(echo "$GITHUB_REF_NAME" | tr / -)" >> "$GITHUB_ENV"
+
       - name: Build the tree
-        run: task dist:device OUT="slot-${GITHUB_REF_NAME}"
+        run: task dist:device OUT="$OUT"
 
       - name: Check what is about to ship
         run: |
           set -eu
-          out="slot-${GITHUB_REF_NAME}"
+          out="$OUT"
           file "$out/System/slot" | grep -q aarch64
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
@@ -53,7 +56,7 @@ jobs:
         id: package
         run: |
           set -eu
-          out="slot-${GITHUB_REF_NAME}"
+          out="$OUT"
           zip="$out-h700.zip"
           zip -qry "$zip" "$out"
           echo "zip=$zip" >> "$GITHUB_OUTPUT"
