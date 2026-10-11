@@ -55,6 +55,7 @@ pub struct Frontend {
     clocks: Clocks,
     about: AboutFace,
     quick_clock: QuickClock,
+    quick_device: QuickClock,
 }
 
 #[derive(Default)]
@@ -136,6 +137,7 @@ impl Frontend {
             clocks: Clocks::default(),
             about: AboutFace::default(),
             quick_clock: QuickClock::default(),
+            quick_device: QuickClock::default(),
         }
     }
 
@@ -352,6 +354,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
+        sync_quick_device(self.session.app_mut(), compositor, &mut self.quick_device);
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -741,6 +744,44 @@ fn sync_quick_clock(app: &mut App, compositor: &mut Compositor, state: &mut Quic
     let lit = upload(compositor, &mut state.lit, lit);
     app.set_quick_clock_faces((dim, dim_size.0, dim_size.1), (lit, lit_size.0, lit_size.1));
     state.shown = text;
+}
+
+const DEVICE_NAME_MAX: usize = 18;
+
+fn device_label(name: &str) -> String {
+    match name.char_indices().nth(DEVICE_NAME_MAX) {
+        Some((cut, _)) => format!("{}...", name[..cut].trim_end()),
+        None => name.to_string(),
+    }
+}
+
+fn sync_quick_device(app: &mut App, compositor: &mut Compositor, state: &mut QuickClock) {
+    if app.quick_menu().is_none() {
+        return;
+    }
+    let text = app
+        .bt_device_name()
+        .map(|n| device_label(&n))
+        .unwrap_or_default();
+    if text == state.shown {
+        return;
+    }
+    state.shown = text.clone();
+    if text.is_empty() {
+        app.set_quick_device_faces(None);
+        return;
+    }
+    let (dim, lit) = (
+        quick_value_face(&text, false),
+        quick_value_face(&text, true),
+    );
+    let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
+    let dim = upload(compositor, &mut state.dim, dim);
+    let lit = upload(compositor, &mut state.lit, lit);
+    app.set_quick_device_faces(Some([
+        (dim, dim_size.0, dim_size.1),
+        (lit, lit_size.0, lit_size.1),
+    ]));
 }
 
 fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace) {

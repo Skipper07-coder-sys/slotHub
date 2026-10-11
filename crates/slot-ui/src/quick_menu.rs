@@ -372,6 +372,7 @@ pub struct QuickMenu<'a> {
     pub pure: bool,
     pub values: [Option<QuickValue>; QuickRow::ALL.len()],
     pub clock: Option<[(TexId, u32, u32); 2]>,
+    pub device: Option<[(TexId, u32, u32); 2]>,
     pub faces: Option<&'a QuickMenuFaces>,
 }
 
@@ -403,6 +404,12 @@ impl QuickMenu<'_> {
             }
             let value = match row {
                 QuickRow::DateTime => self.clock.map(|c| c[lit as usize]),
+                QuickRow::BtHeadphones
+                    if self.values[row.index()] == Some(QuickValue::Connected)
+                        && self.device.is_some() =>
+                {
+                    self.device.map(|c| c[lit as usize])
+                }
                 _ => self.values[row.index()]
                     .and_then(|v| faces.values.get(v.index()))
                     .map(|v| v[lit as usize]),

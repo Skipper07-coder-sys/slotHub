@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
 use slot::app::App;
-use slot::bluetooth::{BtJob, BtJobs, BtState};
+use slot::bluetooth::{BtDevice, BtJob, BtJobs, BtState};
 use slot_input::{Action, Btn};
 use slot_store::{read_slot_state, write_slot_state, SlotState};
 use slot_ui::{QuickRow, QuickValue};
@@ -14,6 +14,7 @@ use tempfile::TempDir;
 struct Fake {
     asked: Arc<Mutex<Vec<BtJob>>>,
     state: Arc<Mutex<Option<BtState>>>,
+    device: Arc<Mutex<Option<BtDevice>>>,
 }
 
 impl BtJobs for Fake {
@@ -26,8 +27,12 @@ impl BtJobs for Fake {
         self.state.lock().unwrap().unwrap_or(BtState::Off)
     }
 
-    fn connected(&self) -> bool {
-        false
+    fn connected(&mut self) -> bool {
+        self.device.lock().unwrap().is_some()
+    }
+
+    fn device(&self) -> Option<BtDevice> {
+        self.device.lock().unwrap().clone()
     }
 }
 
@@ -108,4 +113,30 @@ fn b_from_the_bluetooth_page_returns_to_its_row() {
     open_bluetooth(&mut a);
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::Bluetooth));
+}
+
+#[test]
+fn connected_headphones_take_the_sound_and_show_their_name() {
+    let (_d, mut a, fake) = booted();
+    open_bluetooth(&mut a);
+    press(&mut a, Btn::Right);
+    *fake.state.lock().unwrap() = Some(BtState::Ready);
+    *fake.device.lock().unwrap() = Some(BtDevice {
+        mac: "30:7A:D2:85:D8:1D".into(),
+        name: "Le battonetes 2".into(),
+    });
+    a.tick_ms(a.now() + 1_000);
+    assert_eq!(
+        a.quick_value(QuickRow::BtHeadphones),
+        Some(QuickValue::Connected)
+    );
+    assert_eq!(a.bt_device_name().as_deref(), Some("Le battonetes 2"));
+    assert_eq!(
+        slot::audio::route::bluetooth_device().as_deref(),
+        Some("30:7A:D2:85:D8:1D")
+    );
+    *fake.device.lock().unwrap() = None;
+    a.tick_ms(a.now() + 1_000);
+    assert_eq!(a.bt_device_name(), None);
+    assert_eq!(slot::audio::route::bluetooth_device(), None);
 }

@@ -320,6 +320,7 @@ pub struct App {
     clock_faces: Option<(TexId, TexId)>,
     quick_menu_faces: Option<QuickMenuFaces>,
     quick_clock_faces: Option<[(TexId, u32, u32); 2]>,
+    quick_device_faces: Option<[(TexId, u32, u32); 2]>,
     sticker_face: Option<TexId>,
     wallpaper: Option<TexId>,
     battery_percent: slot_ui::Printed,
@@ -451,6 +452,7 @@ impl App {
             clock_faces: None,
             quick_menu_faces: None,
             quick_clock_faces: None,
+            quick_device_faces: None,
             sticker_face: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
@@ -688,6 +690,13 @@ impl App {
         }
     }
 
+    pub fn bt_device_name(&self) -> Option<String> {
+        if !self.bt_connected {
+            return None;
+        }
+        self.bt.device().map(|d| d.name).filter(|n| !n.is_empty())
+    }
+
     fn headphones_value(&self) -> QuickValue {
         match self.bt.state() {
             BtState::Starting => QuickValue::Starting,
@@ -705,6 +714,10 @@ impl App {
 
     pub fn set_quick_clock_faces(&mut self, dim: (TexId, u32, u32), lit: (TexId, u32, u32)) {
         self.quick_clock_faces = Some([dim, lit]);
+    }
+
+    pub fn set_quick_device_faces(&mut self, faces: Option<[(TexId, u32, u32); 2]>) {
+        self.quick_device_faces = faces;
     }
 
     pub fn set_sticker_face(&mut self, face: TexId) {
@@ -1847,8 +1860,10 @@ impl App {
         if self.now() >= self.headphones_at {
             self.headphones_at = self.now() + HEADPHONES_POLL_MS;
             self.jack = self.power.as_ref().is_some_and(|p| p.headphones());
-            self.bt_connected = self.state.bluetooth && self.bt.connected();
-            crate::audio::route::want_bluetooth(self.bt_connected);
+            let linked = self.state.bluetooth && self.bt.connected();
+            let device = self.bt.device().filter(|_| linked);
+            self.bt_connected = device.is_some();
+            crate::audio::route::want_bluetooth(device.as_ref().map(|d| d.mac.as_str()));
             let on = self.jack || self.bt_connected;
             if on != self.headphones {
                 self.headphones = on;
@@ -2074,6 +2089,7 @@ impl App {
                 pure: self.pure,
                 values: QuickRow::ALL.map(|r| self.quick_value(r)),
                 clock: self.quick_clock_faces,
+                device: self.quick_device_faces,
                 faces: self.quick_menu_faces.as_ref(),
             }
             .draw(out),

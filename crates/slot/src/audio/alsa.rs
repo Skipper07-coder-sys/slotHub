@@ -26,8 +26,6 @@ const RELEASE_AFTER: Duration = Duration::from_secs(3);
 
 const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
 
-const BT_DEVICES: [&str; 2] = ["plug:bluealsa", "bluealsa"];
-
 const BT_RETRY_AFTER: Duration = Duration::from_secs(2);
 
 const BT_RETRIES: u32 = 5;
@@ -88,8 +86,10 @@ impl Alsa {
     }
 
     fn open_pcm(&self, rate: u32) -> Result<*mut c_void, AudioError> {
-        if route::wants_bluetooth() {
-            match self.open_from(&BT_DEVICES, rate, BT_LATENCY_US) {
+        if let Some(mac) = route::bluetooth_device() {
+            let names = route::pcm_names(&mac);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            match self.open_from(&names, rate, BT_LATENCY_US) {
                 Ok(pcm) => {
                     route::set_on_bluetooth(true);
                     return Ok(pcm);

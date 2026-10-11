@@ -4,7 +4,8 @@
 # drives them. Verbs:
 #   on    attach the controller, start BlueZ and BlueALSA, reconnect paired headphones
 #   off   stop all of it and block the radio
-#   pair  search for headphones in pairing mode and pair, trust and connect the nearest
+#   pair    search for headphones in pairing mode and pair, trust and connect the nearest
+#   status  print "<address> <name>" of the headphones BlueALSA can play to
 # Exit 0 on success, 3 when pair found no headphones, 1 otherwise.
 set -u
 
@@ -15,6 +16,7 @@ VENDOR="${AGS_BT_VENDOR:-/mnt/vendor/ctrl/setBluetooth.sh}"
 VENDOR_LOCK="${AGS_BT_VENDOR_LOCK:-/tmp/.init_bt}"
 BTCTL="${AGS_BTCTL:-bluetoothctl}"
 BLUEALSA="${AGS_BLUEALSA:-bluealsa}"
+BLUEALSA_APLAY="${AGS_BLUEALSA_APLAY:-bluealsa-aplay}"
 SYSTEMCTL="${AGS_SYSTEMCTL:-systemctl}"
 SCAN_S="${AGS_BT_SCAN_S:-12}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
@@ -98,26 +100,68 @@ connected() {
 	btctl 5 info "$1" | grep -q "Connected: yes"
 }
 
+# AirPods show up twice in a scan: once over Bluetooth LE ("<name> - Find My"),
+# which carries no audio, and once as a classic device with a Class, which does.
+classic() {
+	btctl 5 info "$1" | grep -q "Class:"
+}
+
+name_of() {
+	info="$(btctl 5 info "$1")"
+	n="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*Alias: //p' | head -n 1)"
+	[ -n "$n" ] || n="$(printf '%s\n' "$info" | sed -n 's/^[[:space:]]*Name: //p' | head -n 1)"
+	printf '%s\n' "${n% - Find My}"
+}
+
+# A link is not audio: only a BlueALSA PCM for the address means A2DP is up.
+a2dp_ready() {
+	if command -v "$BLUEALSA_APLAY" >/dev/null 2>&1; then
+		"$BLUEALSA_APLAY" -L 2>/dev/null | grep -q -i "DEV=$1"
+	else
+		connected "$1"
+	fi
+}
+
 connect() {
-	connected "$1" && return 0
-	btctl 15 connect "$1" >> "$LOG"
-	wait_for "connected $1" 3
+	a2dp_ready "$1" && return 0
+	n=0
+	while [ "$n" -lt 2 ]; do
+		btctl 15 connect "$1" >> "$LOG"
+		wait_for "a2dp_ready $1" 8 && return 0
+		log "$1 linked but no A2DP stream, reconnecting"
+		btctl 10 disconnect "$1" >> "$LOG"
+		sleep 2
+		n=$((n + 1))
+	done
+	return 1
 }
 
 reconnect() {
 	for mac in $(paired); do
+		classic "$mac" || continue
 		if connect "$mac"; then
-			log "reconnected $mac"
+			log "reconnected $(name_of "$mac") ($mac)"
 			return 0
 		fi
 	done
 	return 0
 }
 
-# Print "rssi mac" for each headphone the last scan saw, loudest first.
+status() {
+	for mac in $(paired); do
+		if classic "$mac" && a2dp_ready "$mac"; then
+			echo "$mac $(name_of "$mac")"
+			return 0
+		fi
+	done
+	return 1
+}
+
+# Print "rssi mac" for each classic headphone the last scan saw, loudest first.
 headphones() {
 	for mac in $(btctl 5 devices | sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p'); do
 		info="$(btctl 5 info "$mac")"
+		printf '%s\n' "$info" | grep -q "Class:" || continue
 		printf '%s\n' "$info" | grep -q -e "Icon: audio-" -e "Audio Sink" || continue
 		rssi="$(printf '%s\n' "$info" | sed -n 's/.*RSSI: \(-\{0,1\}[0-9]*\).*/\1/p' | head -n 1)"
 		echo "${rssi:--999} $mac"
@@ -138,14 +182,14 @@ pair() {
 		log "no headphones found"
 		return 3
 	fi
-	name="$(btctl 5 info "$mac" | sed -n 's/^[[:space:]]*Name: //p' | head -n 1)"
+	name="$(name_of "$mac")"
 	log "pairing ${name:-$mac} ($mac)"
 	if ! btctl 5 info "$mac" | grep -q "Paired: yes"; then
 		btctl 30 pair "$mac" >> "$LOG"
 		wait_for "btctl 5 info $mac | grep -q 'Paired: yes'" 5 || { log "pairing failed"; return 1; }
 	fi
 	btctl 5 trust "$mac" >/dev/null
-	connect "$mac" || { log "paired but would not connect"; return 1; }
+	connect "$mac" || { log "paired but no A2DP stream came up"; return 1; }
 	log "connected ${name:-$mac}"
 }
 
@@ -169,8 +213,9 @@ case "${1:-}" in
 	on) up && reconnect ;;
 	off) down ;;
 	pair) pair ;;
+	status) status ;;
 	*)
-		echo "usage: $0 on|off|pair" >&2
+		echo "usage: $0 on|off|pair|status" >&2
 		exit 1
 		;;
 esac
