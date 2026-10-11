@@ -22,6 +22,7 @@ use slot_ui::{
 };
 
 use crate::audio::Sfx;
+use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
 use crate::link_kind::{link_carried, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
@@ -345,10 +346,13 @@ pub struct App {
     charge_at: Millis,
     headphones: bool,
     headphones_at: Millis,
+    jack: bool,
+    bt_connected: bool,
     battery: Option<Battery>,
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
+    bt: Box<dyn BtJobs>,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -386,6 +390,7 @@ impl App {
         let card_failing = state_writer.card_failing();
         App {
             radio: radio_jobs(),
+            bt: bt_jobs(),
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -472,6 +477,8 @@ impl App {
             charge_at: CHARGE_POLL_MS,
             headphones: false,
             headphones_at: 0,
+            jack: false,
+            bt_connected: false,
             battery: None,
             last_led: None,
             powering_off: false,
@@ -490,6 +497,9 @@ impl App {
         app.pure = read_pure(root);
         if app.pure {
             eprintln!("slot: pure: on, from {}", slot_store::PURE_FILE);
+        }
+        if app.state.bluetooth {
+            app.bt.ask(BtJob::On);
         }
         if app.state.clock_set {
             app.start();
@@ -668,7 +678,24 @@ impl App {
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
+            QuickRow::BtPower => Some(QuickValue::flag(self.state.bluetooth)),
+            QuickRow::BtHeadphones => Some(self.headphones_value()),
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Bluetooth => None,
+        }
+    }
+
+    fn headphones_value(&self) -> QuickValue {
+        match self.bt.state() {
+            BtState::Starting => QuickValue::Starting,
+            BtState::Searching => QuickValue::Searching,
+            _ if self.bt_connected => QuickValue::Connected,
+            BtState::NoneFound if self.state.bluetooth => QuickValue::NoneFound,
+            BtState::Failed if self.state.bluetooth => QuickValue::Failed,
+            _ => QuickValue::NotConnected,
         }
     }
 
@@ -1022,7 +1049,8 @@ impl App {
 
     pub fn set_power(&mut self, mut power: Power) {
         power.set_backlight(self.state.brightness);
-        self.headphones = power.headphones();
+        self.jack = power.headphones();
+        self.headphones = self.jack || self.bt_connected;
         self.hud.set_headphones(self.headphones);
         let secs = power.now();
         if matches!(self.phase, Phase::SetClock { .. }) || secs < CLOCK_FLOOR {
@@ -1356,7 +1384,8 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
-            QuickRow::Screen | QuickRow::Game => {
+            QuickRow::BtHeadphones => self.pair_headphones(),
+            QuickRow::Screen | QuickRow::Game | QuickRow::Bluetooth => {
                 if let Some(row) = row.child_in(self.pure) {
                     self.phase = Phase::QuickMenu { row };
                 }
@@ -1370,8 +1399,20 @@ impl App {
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
+            | QuickRow::BtPower
             | QuickRow::Rumble => {}
         }
+    }
+
+    fn pair_headphones(&mut self) {
+        if self.bt.state().busy() {
+            return;
+        }
+        if !self.state.bluetooth {
+            self.state.bluetooth = true;
+            self.persist();
+        }
+        self.bt.ask(BtJob::Pair);
     }
 
     fn change_setting(&mut self, row: QuickRow, right: bool) {
@@ -1411,7 +1452,17 @@ impl App {
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,
             QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => return,
+            QuickRow::BtPower => {
+                s.bluetooth = !s.bluetooth;
+                let job = if s.bluetooth { BtJob::On } else { BtJob::Off };
+                self.bt.ask(job);
+            }
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Bluetooth
+            | QuickRow::BtHeadphones => return,
         }
         self.persist();
     }
@@ -1795,7 +1846,10 @@ impl App {
         }
         if self.now() >= self.headphones_at {
             self.headphones_at = self.now() + HEADPHONES_POLL_MS;
-            let on = self.power.as_ref().is_some_and(|p| p.headphones());
+            self.jack = self.power.as_ref().is_some_and(|p| p.headphones());
+            self.bt_connected = self.state.bluetooth && self.bt.connected();
+            crate::audio::route::want_bluetooth(self.bt_connected);
+            let on = self.jack || self.bt_connected;
             if on != self.headphones {
                 self.headphones = on;
                 self.hud.set_headphones(on);
@@ -2777,6 +2831,10 @@ impl App {
 
     pub fn set_radio_jobs(&mut self, jobs: Box<dyn RadioJobs>) {
         self.radio = jobs;
+    }
+
+    pub fn set_bt_jobs(&mut self, jobs: Box<dyn BtJobs>) {
+        self.bt = jobs;
     }
 
     fn game_menu_input(&mut self, action: Action) {

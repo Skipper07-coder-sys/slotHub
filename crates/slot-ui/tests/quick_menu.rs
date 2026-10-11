@@ -79,7 +79,7 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 fn the_rows_run_in_the_order_the_user_chose() {
     assert_eq!(
         QuickRow::MAIN.map(QuickRow::label),
-        ["Screen", "Gameplay", "Date & Time", "About"]
+        ["Screen", "Gameplay", "Bluetooth", "Date & Time", "About"]
     );
     assert_eq!(
         QuickRow::SCREEN.map(QuickRow::label),
@@ -101,6 +101,10 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Auto Save on Eject"
         ]
     );
+    assert_eq!(
+        QuickRow::BLUETOOTH.map(QuickRow::label),
+        ["Bluetooth", "Headphones"]
+    );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
     assert_eq!(
         opens,
@@ -108,13 +112,16 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::Screen,
             QuickRow::DateTime,
             QuickRow::About,
-            QuickRow::Game
+            QuickRow::Game,
+            QuickRow::Bluetooth,
+            QuickRow::BtHeadphones
         ]
     );
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
         &QuickRow::GAME[..],
+        &QuickRow::BLUETOOTH[..],
     ] {
         for &row in page {
             assert_eq!(row.page(), page, "{row:?}");
@@ -136,7 +143,13 @@ fn the_values_read_as_the_menu_prints_them() {
             "LCD3x",
             "Grid",
             "Dot",
-            "Simpletex"
+            "Simpletex",
+            "Connected",
+            "Not Connected",
+            "Starting...",
+            "Searching...",
+            "None Found",
+            "Failed"
         ]
     );
     assert_eq!(QuickValue::flag(true), QuickValue::On);

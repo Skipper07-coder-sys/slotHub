@@ -20,10 +20,13 @@ pub enum QuickRow {
     Turbo,
     Rewind,
     GbPalettes,
+    Bluetooth,
+    BtPower,
+    BtHeadphones,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 14] = [
+    pub const ALL: [QuickRow; 17] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -38,11 +41,15 @@ impl QuickRow {
         QuickRow::Turbo,
         QuickRow::Rewind,
         QuickRow::GbPalettes,
+        QuickRow::Bluetooth,
+        QuickRow::BtPower,
+        QuickRow::BtHeadphones,
     ];
 
-    pub const MAIN: [QuickRow; 4] = [
+    pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
+        QuickRow::Bluetooth,
         QuickRow::DateTime,
         QuickRow::About,
     ];
@@ -65,6 +72,8 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
+    pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
+
     pub fn index(self) -> usize {
         self as usize
     }
@@ -79,6 +88,7 @@ impl QuickRow {
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
+            QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -100,6 +110,7 @@ impl QuickRow {
         match self.page()[0] {
             QuickRow::GbaShader => Some(QuickRow::Screen),
             QuickRow::FastForward => Some(QuickRow::Game),
+            QuickRow::BtPower => Some(QuickRow::Bluetooth),
             _ => None,
         }
     }
@@ -111,6 +122,7 @@ impl QuickRow {
     pub fn child_in(self, pure: bool) -> Option<QuickRow> {
         match self {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
+            QuickRow::Bluetooth => Some(QuickRow::BLUETOOTH[0]),
             QuickRow::Game => Some(match pure {
                 true => QuickRow::GAME_PURE[0],
                 false => QuickRow::GAME[0],
@@ -146,13 +158,20 @@ impl QuickRow {
             QuickRow::Turbo => "Turbo Buttons",
             QuickRow::Rewind => "Rewind",
             QuickRow::GbPalettes => "GB Palettes",
+            QuickRow::Bluetooth | QuickRow::BtPower => "Bluetooth",
+            QuickRow::BtHeadphones => "Headphones",
         }
     }
 
     pub fn opens(self) -> bool {
         matches!(
             self,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game
+            QuickRow::DateTime
+                | QuickRow::About
+                | QuickRow::Screen
+                | QuickRow::Game
+                | QuickRow::Bluetooth
+                | QuickRow::BtHeadphones
         )
     }
 
@@ -187,10 +206,16 @@ pub enum QuickValue {
     Grid,
     Dot,
     Simpletex,
+    Connected,
+    NotConnected,
+    Starting,
+    Searching,
+    NoneFound,
+    Failed,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 10] = [
+    pub const ALL: [QuickValue; 16] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -201,6 +226,12 @@ impl QuickValue {
         QuickValue::Grid,
         QuickValue::Dot,
         QuickValue::Simpletex,
+        QuickValue::Connected,
+        QuickValue::NotConnected,
+        QuickValue::Starting,
+        QuickValue::Searching,
+        QuickValue::NoneFound,
+        QuickValue::Failed,
     ];
 
     pub fn index(self) -> usize {
@@ -219,6 +250,12 @@ impl QuickValue {
             QuickValue::Grid => "Grid",
             QuickValue::Dot => "Dot",
             QuickValue::Simpletex => "Simpletex",
+            QuickValue::Connected => "Connected",
+            QuickValue::NotConnected => "Not Connected",
+            QuickValue::Starting => "Starting...",
+            QuickValue::Searching => "Searching...",
+            QuickValue::NoneFound => "None Found",
+            QuickValue::Failed => "Failed",
         }
     }
 
@@ -314,11 +351,12 @@ pub fn quick_caret_face(right: bool) -> UndoFace {
     UndoFace { rgba, w, h }
 }
 
-pub fn quick_legend_faces() -> [UndoFace; 3] {
+pub fn quick_legend_faces() -> [UndoFace; 4] {
     [
         hint_face("B", "Back"),
         arrows_hint_face("Change"),
         hint_face("A", "Open"),
+        hint_face("A", "Pair"),
     ]
 }
 
@@ -326,7 +364,7 @@ pub struct QuickMenuFaces {
     pub labels: Vec<(TexId, u32, u32)>,
     pub values: Vec<[(TexId, u32, u32); 2]>,
     pub carets: [(TexId, u32, u32); 2],
-    pub legend: [(TexId, u32); 3],
+    pub legend: [(TexId, u32); 4],
 }
 
 pub struct QuickMenu<'a> {
@@ -383,8 +421,12 @@ impl QuickMenu<'_> {
             push(out, tex, vx, y, w, h);
             push(out, left_tex, vx + pad - CARET_GAP - lw as f32, y, lw, lh);
         }
-        let [back, change, open] = faces.legend;
-        let other = if self.row.opens() { open } else { change };
+        let [back, change, open, pair] = faces.legend;
+        let other = match self.row {
+            QuickRow::BtHeadphones => pair,
+            row if row.opens() => open,
+            _ => change,
+        };
         for (tex, w, x) in centred_hints(&[back, other], LEGEND_GAP) {
             push(out, tex, x, LEGEND_Y, w, HINT_H);
         }

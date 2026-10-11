@@ -2,6 +2,7 @@ mod alsa;
 #[cfg(feature = "host")]
 mod host;
 mod ring;
+pub mod route;
 mod sfx;
 mod silence;
 mod sink;
