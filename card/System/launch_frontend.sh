@@ -17,6 +17,10 @@ fi
 
 echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/dev/null
 
+# A downloaded update waits in System.new; the swap keeps the old System until
+# the new one has run (update.sh swap).
+[ -f "$SYS/update.sh" ] && sh "$SYS/update.sh" swap
+
 [ -f "$SD/slot.log" ] && mv -f "$SD/slot.log" "$SD/slot.log.1"
 log "exec $SYS/slot"
 
