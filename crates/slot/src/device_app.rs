@@ -72,9 +72,7 @@ pub fn run() {
     let _ = std::thread::Builder::new()
         .name("slot-fonts".into())
         .spawn(slot_ui::warm_fonts);
-    let audio = std::thread::Builder::new()
-        .name("slot-audio-open".into())
-        .spawn(slot::audio::opened_sink);
+    let sink = slot::audio::opening_sink();
     let root = std::env::var_os("SLOT_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(CARD));
@@ -115,11 +113,6 @@ pub fn run() {
     eprintln!("slot: {}", platform.report());
     platform.trace_boot();
     slot::boot_time::mark("platform");
-    let sink = match audio.map(|h| h.join()) {
-        Ok(Ok(sink)) => sink,
-        _ => slot::audio::opened_sink(),
-    };
-    slot::boot_time::mark("audio");
     let mut frontend = Frontend::boot_with(Box::new(platform), sink);
     slot::boot_time::mark("frontend");
     frontend.upload_boot_faces(&mut compositor);
