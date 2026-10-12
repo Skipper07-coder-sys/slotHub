@@ -111,8 +111,21 @@ again the day you switch it off, along with your fast-forward, rewind and turbo 
 
 # Wi-Fi
 
-slot can join your home Wi-Fi so you can reach the card over the network. Put a `wifi.conf`
-at the root of the card, next to `System/`, listing each network's name and password:
+slot can join your home Wi-Fi so you can reach the card over the network. Open the quick menu,
+go to **Wi-Fi** and pick **Choose Network**. slot lists the networks in range, strongest first.
+Pick yours, type its password on the on-screen keyboard and press **Start** (or **Join**):
+
+| Button | On the keyboard |
+|--------|-----------------|
+| A      | Type the key under the cursor |
+| B      | Delete the last character, or go back to the list when there is none |
+| X      | Switch between lower case, upper case and symbols |
+| Y      | Space |
+| Start  | Join |
+
+slot saves each network you join to `wifi.conf` at the root of the card, newest first, and joins
+whichever saved network is in range every time Wi-Fi is on. You can also edit that file on a
+computer:
 
 ```ini
 # The first network listed is preferred when both are in range
@@ -123,14 +136,14 @@ ssid=Phone Hotspot
 psk=another password
 ```
 
-Leave the `psk` line out for an open network. Then open the quick menu, go to **Wi-Fi** and switch it
-**On**. The **Network** row shows how joining went:
+Leave the `psk` line out for an open network. **Wi-Fi** switches it on or off, and the **Network**
+row shows how joining went:
 
 | Network shows | What it means |
 |---------------|---------------|
 | Joining...    | Looking for a listed network and getting an address |
 | Connected     | Online. The handheld answers at `<hostname>.local`, eg `rg34xxsp.local` |
-| No wifi.conf  | There is no `wifi.conf`, or no network in it with a 8 to 63 character password |
+| None Saved    | No network has been saved yet, or none has a 8 to 63 character password |
 | Not Found     | None of the listed networks is in range, or the password is wrong |
 | No Address    | Joined, but the router gave no address |
 | Failed        | The radio did not start. Details are in `slot-wifi.log` |

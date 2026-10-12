@@ -109,10 +109,14 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::DateTime,
             QuickRow::About,
             QuickRow::Game,
-            QuickRow::Wifi
+            QuickRow::Wifi,
+            QuickRow::WifiChoose
         ]
     );
-    assert_eq!(QuickRow::WIFI.map(QuickRow::label), ["Wi-Fi", "Network"]);
+    assert_eq!(
+        QuickRow::WIFI.map(QuickRow::label),
+        ["Wi-Fi", "Network", "Choose Network"]
+    );
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
@@ -142,7 +146,7 @@ fn the_values_read_as_the_menu_prints_them() {
             "Simpletex",
             "Joining...",
             "Connected",
-            "No wifi.conf",
+            "None Saved",
             "Not Found",
             "No Address",
             "Failed"

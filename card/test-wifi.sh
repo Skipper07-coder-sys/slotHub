@@ -118,6 +118,41 @@ run down && rc=0 || rc=$?
 run pause
 [ -e "$TMP/run/slot-wifi.paused" ] && fail "a pause after down will turn Wi-Fi back on"
 
+# wpa_cli as a supplicant would answer: a table of what is in range.
+scan_fake() {
+	cat > "$TMP/bin/wpa_cli" <<FAKE
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$TMP/cli.log"
+case "\$*" in
+*ping*) [ -n "\${FAKE_PONG:-}" ] && echo PONG ;;
+*scan_results*)
+	printf 'bssid / frequency / signal level / flags / ssid\\n'
+	printf 'aa:01\\t2412\\t-71\\t[WPA2-PSK-CCMP][ESS]\\tHome\\n'
+	printf 'aa:02\\t5180\\t-48\\t[WPA2-PSK-CCMP][ESS]\\tHome\\n'
+	printf 'aa:03\\t2437\\t-80\\t[ESS]\\tCafe Free\\n'
+	printf 'aa:04\\t2462\\t-60\\t[WPA2-PSK-CCMP][ESS]\\t\\n'
+	;;
+esac
+exit 0
+FAKE
+	chmod 755 "$TMP/bin/wpa_cli"
+}
+
+reset
+scan_fake
+out="$(AGS_WIFI_SCAN_S=0 run scan)" && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "scan exited $rc"
+want="$(printf -- '-48\t1\tHome\n-80\t0\tCafe Free')"
+[ "$out" = "$want" ] || fail "scan printed $(printf '%s' "$out" | od -c | head -3)"
+grep -q -- '-i wlan0 -c' "$TMP/sup.log" || fail "scan with Wi-Fi off started no supplicant"
+grep -q terminate "$TMP/cli.log" || fail "scan with Wi-Fi off left its supplicant running"
+
+reset
+scan_fake
+FAKE_PONG=1 AGS_WIFI_SCAN_S=0 run scan >/dev/null
+[ -e "$TMP/sup.log" ] && fail "scan started a second supplicant beside a running one"
+grep -q terminate "$TMP/cli.log" && fail "scan stopped the supplicant Wi-Fi is using"
+
 reset
 run sideways 2>/dev/null && rc=0 || rc=$?
 [ "$rc" = 2 ] || fail "bad verb exited $rc, want 2"

@@ -8,6 +8,8 @@
 #   pause   leave it for link play, remembering to come back
 #   resume  come back after link play, if pause left it
 #   status  print the IPv4 address, if there is one
+#   scan    print the networks in range, strongest first, one per line as
+#           <signal dBm><TAB><1 if it needs a password, else 0><TAB><name>
 # Exit 0 on success, 3 when wifi.conf names no usable network, 4 when none of
 # them could be joined, 5 when joined but no address came, 1 otherwise.
 set -u
@@ -24,6 +26,7 @@ IP="${AGS_IP:-ip}"
 UDHCPC="${AGS_UDHCPC:-udhcpc}"
 JOIN_S="${AGS_WIFI_JOIN_S:-20}"
 ADDR_S="${AGS_WIFI_ADDR_S:-15}"
+SCAN_S="${AGS_WIFI_SCAN_S:-4}"
 
 SUP_CONF="$RUN/slot-wifi.conf"
 DHCP_PID="$RUN/slot-wifi-udhcpc.pid"
@@ -210,8 +213,44 @@ wifi_resume() {
 	wifi_up
 }
 
+# Scanning needs a supplicant. Borrow the running one, or start a bare one and
+# stop it again so a scan with Wi-Fi off leaves it off.
+wifi_scan() {
+	[ -d "$NET/wlan0" ] || { log "scan: no wlan0"; return 1; }
+	rfkill unblock wifi 2>/dev/null || true
+	$IP link set wlan0 up 2>/dev/null || true
+	bare=0
+	if ! $WPA_CLI -p "$CTRL_DIR" -i wlan0 ping 2>/dev/null | grep -q PONG; then
+		/bin/mkdir -p "$CTRL_DIR"
+		echo "ctrl_interface=$CTRL_DIR" > "$RUN/slot-wifi-scan.conf"
+		$WPA_SUPPLICANT -B -i wlan0 -c "$RUN/slot-wifi-scan.conf" -Dnl80211 >/dev/null 2>&1 \
+			|| { log "scan: wpa_supplicant would not start"; return 1; }
+		bare=1
+		w=0
+		while ! $WPA_CLI -p "$CTRL_DIR" -i wlan0 ping 2>/dev/null | grep -q PONG && [ "$w" -lt 12 ]; do
+			sleep 0.25 2>/dev/null || sleep 1
+			w=$((w + 1))
+		done
+	fi
+	$WPA_CLI -p "$CTRL_DIR" -i wlan0 scan >/dev/null 2>&1
+	sleep "$SCAN_S"
+	$WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>/dev/null \
+		| awk -F '\t' 'NF >= 5 && $5 != "" && $3 ~ /^-?[0-9]+$/ {
+			locked = ($4 ~ /WPA|WEP|RSN|SAE/) ? 1 : 0
+			print $3 "\t" locked "\t" $5
+		}' \
+		| sort -t "$(printf '\t')" -k1,1nr \
+		| awk -F '\t' '!seen[$3]++'
+	if [ "$bare" = 1 ]; then
+		supplicant_stop
+		/bin/rm -f "$RUN/slot-wifi-scan.conf"
+	fi
+	return 0
+}
+
 case "${1:-}" in
 up) wifi_up ;;
+scan) wifi_scan ;;
 down) wifi_down ;;
 pause) wifi_pause ;;
 resume) wifi_resume ;;
@@ -221,7 +260,7 @@ status)
 	[ -n "$a" ]
 	;;
 *)
-	echo "usage: wifi.sh [up|down|pause|resume|status]" >&2
+	echo "usage: wifi.sh [up|down|pause|resume|status|scan]" >&2
 	exit 2
 	;;
 esac

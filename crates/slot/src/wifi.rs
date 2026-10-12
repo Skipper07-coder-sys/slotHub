@@ -1,4 +1,3 @@
-#[cfg(any(feature = "device", test))]
 use std::path::Path;
 #[cfg(any(feature = "device", test))]
 use std::process::Command;
@@ -7,12 +6,17 @@ use std::sync::atomic::{AtomicU8, Ordering};
 #[cfg(feature = "device")]
 use std::sync::mpsc::{channel, Sender};
 #[cfg(feature = "device")]
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+
+use slot_ui::WifiNetwork;
+
+pub const WIFI_CONF: &str = "wifi.conf";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WifiJob {
     On,
     Off,
+    Scan,
 }
 
 impl WifiJob {
@@ -20,6 +24,7 @@ impl WifiJob {
         match self {
             WifiJob::On => "up",
             WifiJob::Off => "down",
+            WifiJob::Scan => "scan",
         }
     }
 }
@@ -49,6 +54,7 @@ impl WifiState {
     pub fn after(job: WifiJob, exit: Option<i32>) -> WifiState {
         match (job, exit) {
             (WifiJob::Off, _) => WifiState::Off,
+            (WifiJob::Scan, _) => WifiState::Off,
             (_, Some(0)) => WifiState::Online,
             (_, Some(3)) => WifiState::NoSetup,
             (_, Some(4)) => WifiState::NotFound,
@@ -60,7 +66,7 @@ impl WifiState {
     pub fn during(job: WifiJob) -> WifiState {
         match job {
             WifiJob::On => WifiState::Connecting,
-            WifiJob::Off => WifiState::Off,
+            WifiJob::Off | WifiJob::Scan => WifiState::Off,
         }
     }
 }
@@ -69,6 +75,58 @@ pub trait WifiJobs: Send {
     fn ask(&mut self, job: WifiJob);
 
     fn state(&self) -> WifiState;
+
+    fn scan(&mut self);
+
+    /// What the last scan found, or None while it is still looking.
+    fn scanned(&self) -> Option<Vec<WifiNetwork>>;
+}
+
+/// One network per line, as `wifi.sh scan` prints them.
+pub fn parse_scan(text: &str) -> Vec<WifiNetwork> {
+    text.lines()
+        .filter_map(|line| {
+            let mut parts = line.splitn(3, '\t');
+            let signal = parts.next()?.trim().parse().ok()?;
+            let secured = parts.next()? == "1";
+            let ssid = parts.next()?.to_string();
+            (!ssid.is_empty()).then_some(WifiNetwork {
+                ssid,
+                secured,
+                signal,
+            })
+        })
+        .collect()
+}
+
+/// Puts a network at the top of wifi.conf, so it is the one tried first,
+/// replacing any older entry for the same name and keeping the rest.
+pub fn remember(root: &Path, ssid: &str, psk: &str) -> std::io::Result<()> {
+    let path = root.join(WIFI_CONF);
+    let old = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut kept: Vec<(String, Option<String>)> = Vec::new();
+    for line in old.lines().map(|l| l.trim_end_matches('\r')) {
+        if let Some(name) = line.strip_prefix("ssid=") {
+            kept.push((name.to_string(), None));
+        } else if let Some(key) = line
+            .strip_prefix("psk=")
+            .or_else(|| line.strip_prefix("password="))
+        {
+            if let Some(last) = kept.last_mut() {
+                last.1 = Some(key.to_string());
+            }
+        }
+    }
+    kept.retain(|(name, _)| name != ssid);
+    let mut text = String::from("# Saved by slot. The first network listed is tried first.\n");
+    let fresh = (ssid.to_string(), (!psk.is_empty()).then(|| psk.to_string()));
+    for (name, key) in std::iter::once(fresh).chain(kept) {
+        text.push_str(&format!("\nssid={name}\n"));
+        if let Some(key) = key {
+            text.push_str(&format!("psk={key}\n"));
+        }
+    }
+    slot_store::atomic_write(&path, text.as_bytes())
 }
 
 pub fn wifi_jobs() -> Box<dyn WifiJobs> {
@@ -83,6 +141,9 @@ fn wifi_command(root: &Path, job: WifiJob) -> Command {
     cmd.arg(root.join("System/wifi.sh")).arg(job.arg());
     cmd
 }
+
+#[cfg(feature = "device")]
+static SCANNED: Mutex<Option<Vec<WifiNetwork>>> = Mutex::new(None);
 
 #[cfg(feature = "device")]
 static STATE: AtomicU8 = AtomicU8::new(WifiState::Off as u8);
@@ -111,6 +172,15 @@ fn queue() -> &'static Sender<WifiJob> {
             .spawn(move || {
                 let root = std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into());
                 for job in rx {
+                    if job == WifiJob::Scan {
+                        let found = wifi_command(Path::new(&root), job)
+                            .output()
+                            .map(|o| parse_scan(&String::from_utf8_lossy(&o.stdout)))
+                            .unwrap_or_default();
+                        eprintln!("slot: wifi scan found {}", found.len());
+                        *SCANNED.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
+                        continue;
+                    }
                     store(WifiState::during(job));
                     let exit = wifi_command(Path::new(&root), job)
                         .status()
@@ -135,6 +205,15 @@ impl WifiJobs for WifiQueue {
     fn state(&self) -> WifiState {
         load()
     }
+
+    fn scan(&mut self) {
+        *SCANNED.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let _ = queue().send(WifiJob::Scan);
+    }
+
+    fn scanned(&self) -> Option<Vec<WifiNetwork>> {
+        SCANNED.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
 }
 
 #[cfg(not(feature = "device"))]
@@ -143,6 +222,12 @@ impl WifiJobs for WifiQueue {
 
     fn state(&self) -> WifiState {
         WifiState::Off
+    }
+
+    fn scan(&mut self) {}
+
+    fn scanned(&self) -> Option<Vec<WifiNetwork>> {
+        Some(Vec::new())
     }
 }
 
@@ -171,6 +256,53 @@ mod tests {
         assert_eq!(WifiState::after(WifiJob::On, Some(1)), WifiState::Failed);
         assert_eq!(WifiState::after(WifiJob::On, None), WifiState::Failed);
         assert_eq!(WifiState::after(WifiJob::Off, Some(1)), WifiState::Off);
+    }
+
+    #[test]
+    fn a_scan_line_is_signal_lock_and_the_whole_name() {
+        let nets = parse_scan("-48\t1\tHome\tNet\n-80\t0\tCafe Free\nnoise\n-60\t1\t\n");
+        assert_eq!(
+            nets,
+            [
+                WifiNetwork {
+                    ssid: "Home\tNet".into(),
+                    secured: true,
+                    signal: -48
+                },
+                WifiNetwork {
+                    ssid: "Cafe Free".into(),
+                    secured: false,
+                    signal: -80
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_network_picked_on_the_handheld_goes_first_and_replaces_its_old_entry() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join(WIFI_CONF),
+            "# mine\r\nssid=Home\r\npsk=old password\r\nssid=Cafe\r\n",
+        )
+        .unwrap();
+        remember(d.path(), "Phone", "hotspot 1").unwrap();
+        remember(d.path(), "Home", "new password").unwrap();
+        let text = std::fs::read_to_string(d.path().join(WIFI_CONF)).unwrap();
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "ssid=Home",
+                "psk=new password",
+                "ssid=Phone",
+                "psk=hotspot 1",
+                "ssid=Cafe"
+            ]
+        );
     }
 
     #[test]

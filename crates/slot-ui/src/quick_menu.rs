@@ -23,10 +23,11 @@ pub enum QuickRow {
     Wifi,
     WifiPower,
     WifiNetwork,
+    WifiChoose,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 17] = [
+    pub const ALL: [QuickRow; 18] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -44,6 +45,7 @@ impl QuickRow {
         QuickRow::Wifi,
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
     ];
 
     pub const MAIN: [QuickRow; 5] = [
@@ -72,7 +74,11 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
-    pub const WIFI: [QuickRow; 2] = [QuickRow::WifiPower, QuickRow::WifiNetwork];
+    pub const WIFI: [QuickRow; 3] = [
+        QuickRow::WifiPower,
+        QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
+    ];
 
     pub fn index(self) -> usize {
         self as usize
@@ -88,7 +94,7 @@ impl QuickRow {
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
-            QuickRow::WifiPower | QuickRow::WifiNetwork => &QuickRow::WIFI,
+            QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -160,6 +166,7 @@ impl QuickRow {
             QuickRow::GbPalettes => "GB Palettes",
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
+            QuickRow::WifiChoose => "Choose Network",
         }
     }
 
@@ -171,6 +178,7 @@ impl QuickRow {
                 | QuickRow::Screen
                 | QuickRow::Game
                 | QuickRow::Wifi
+                | QuickRow::WifiChoose
         )
     }
 
@@ -251,7 +259,7 @@ impl QuickValue {
             QuickValue::Simpletex => "Simpletex",
             QuickValue::Joining => "Joining...",
             QuickValue::Online => "Connected",
-            QuickValue::NoSetup => "No wifi.conf",
+            QuickValue::NoSetup => "None Saved",
             QuickValue::NotFound => "Not Found",
             QuickValue::NoAddress => "No Address",
             QuickValue::Trouble => "Failed",

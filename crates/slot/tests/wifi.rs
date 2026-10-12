@@ -4,16 +4,18 @@ use std::sync::{Arc, Mutex};
 
 use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
 use slot::app::App;
-use slot::wifi::{WifiJob, WifiJobs, WifiState};
+use slot::wifi::{WifiJob, WifiJobs, WifiState, WIFI_CONF};
 use slot_input::{Action, Btn};
 use slot_store::{read_slot_state, write_slot_state, SlotState};
-use slot_ui::{QuickRow, QuickValue};
+use slot_ui::{QuickRow, QuickValue, WifiNetwork, WifiSetup};
 use tempfile::TempDir;
 
 #[derive(Clone, Default)]
 struct Fake {
     asked: Arc<Mutex<Vec<WifiJob>>>,
     state: Arc<Mutex<Option<WifiState>>>,
+    scans: Arc<Mutex<usize>>,
+    found: Arc<Mutex<Option<Vec<WifiNetwork>>>>,
 }
 
 impl WifiJobs for Fake {
@@ -25,6 +27,42 @@ impl WifiJobs for Fake {
     fn state(&self) -> WifiState {
         self.state.lock().unwrap().unwrap_or(WifiState::Off)
     }
+
+    fn scan(&mut self) {
+        *self.scans.lock().unwrap() += 1;
+        *self.found.lock().unwrap() = None;
+    }
+
+    fn scanned(&self) -> Option<Vec<WifiNetwork>> {
+        self.found.lock().unwrap().clone()
+    }
+}
+
+fn nearby() -> Vec<WifiNetwork> {
+    vec![
+        WifiNetwork {
+            ssid: "Home".into(),
+            secured: true,
+            signal: -50,
+        },
+        WifiNetwork {
+            ssid: "Cafe".into(),
+            secured: false,
+            signal: -80,
+        },
+    ]
+}
+
+fn choose_network(a: &mut App, fake: &Fake) {
+    open_wifi(a);
+    for _ in 0..QuickRow::WifiChoose.position() {
+        press(a, Btn::Down);
+    }
+    press(a, Btn::A);
+    assert_eq!(a.wifi_setup(), Some(&WifiSetup::Scanning));
+    *fake.found.lock().unwrap() = Some(nearby());
+    a.tick_ms(1);
+    assert_eq!(a.wifi_setup(), Some(&WifiSetup::scanned(nearby())));
 }
 
 fn booted() -> (TempDir, App, Fake) {
@@ -124,4 +162,51 @@ fn b_from_the_wifi_page_returns_to_its_row() {
     open_wifi(&mut a);
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::Wifi));
+}
+
+#[test]
+fn a_network_picked_and_typed_on_the_handheld_is_saved_and_joined() {
+    let (d, mut a, fake) = booted();
+    choose_network(&mut a, &fake);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::Down);
+    for _ in 0..8 {
+        press(&mut a, Btn::A);
+        press(&mut a, Btn::Right);
+    }
+    press(&mut a, Btn::Start);
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiNetwork));
+    assert_eq!(*fake.asked.lock().unwrap(), [WifiJob::On]);
+    assert!(read_slot_state(d.path()).wifi);
+    let conf = std::fs::read_to_string(d.path().join(WIFI_CONF)).unwrap();
+    assert!(conf.contains("ssid=Home\npsk=qwertyui\n"), "{conf}");
+}
+
+#[test]
+fn an_open_network_joins_with_no_password() {
+    let (d, mut a, fake) = booted();
+    choose_network(&mut a, &fake);
+    press(&mut a, Btn::Down);
+    press(&mut a, Btn::A);
+    assert_eq!(*fake.asked.lock().unwrap(), [WifiJob::On]);
+    let conf = std::fs::read_to_string(d.path().join(WIFI_CONF)).unwrap();
+    assert!(
+        conf.contains("ssid=Cafe\n") && !conf.contains("psk="),
+        "{conf}"
+    );
+}
+
+#[test]
+fn x_scans_again_and_b_or_menu_leave_the_list() {
+    let (_d, mut a, fake) = booted();
+    choose_network(&mut a, &fake);
+    press(&mut a, Btn::X);
+    assert_eq!(*fake.scans.lock().unwrap(), 2);
+    assert_eq!(a.wifi_setup(), Some(&WifiSetup::Scanning));
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiChoose));
+    press(&mut a, Btn::A);
+    a.apply(Action::QuickMenu);
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiChoose));
+    assert!(fake.asked.lock().unwrap().is_empty());
 }
