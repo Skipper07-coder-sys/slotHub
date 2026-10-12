@@ -63,7 +63,7 @@ please [open an issue on GitHub](https://github.com/BrandonKowalski/slot/issues)
 # Pure Mode
 
 > [!NOTE]
-> Pure mode is the one thing this fork (slotHub) adds to slot. It is not part of upstream slot,
+> Pure mode is one of the things this fork (slotHub) adds to slot. It is not part of upstream slot,
 > and both the code and this section were written with Claude.
 
 For when you would rather not have the option. Pure mode runs a game the way the handheld
@@ -108,6 +108,29 @@ Save states made before pure was switched on are left alone on the card. They ar
 again the day you switch it off, along with your fast-forward, rewind and turbo settings.
 
 ---
+
+# Bluetooth Headphones
+
+> [!NOTE]
+> Bluetooth is a slotHub addition, not part of upstream slot, written with Claude. It needs
+> BaseOS on a device with Bluetooth (the RG34XXSP has it), which ships the driver, BlueZ and BlueALSA.
+
+Open the settings with `MENU` and choose Bluetooth.
+
+- **Bluetooth** switches the radio on or off. It stays as you left it across restarts, and
+  when it is on slot reconnects the headphones you chose last.
+- **Headphones** shows whether a pair is connected, and its name. Press `A` to search:
+  slot listens for about 12 seconds and lists every pair of headphones or speaker it hears,
+  nearest first. Put yours in pairing mode first (for AirPods, hold the case button until
+  the light flashes white), pick them and press `A`. slot pairs, trusts and connects them,
+  and remembers them in `bluetooth.conf` at the root of the card, so they reconnect by
+  themselves whenever Bluetooth is on. `X` searches again.
+
+While headphones are connected the game's sound goes to them instead of the speaker, and
+slot keeps the stream open even in silence, since this BlueALSA drops it otherwise. The
+radio and BlueALSA are driven by `System/bluetooth.sh`; it logs everything it does, and a
+dump of what BlueZ knows after every start and failed connect, to `slot-bluetooth.log` at
+the root of the card.
 
 # Wi-Fi
 
