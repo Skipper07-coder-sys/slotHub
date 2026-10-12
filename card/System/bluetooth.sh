@@ -2,15 +2,19 @@
 # Bluetooth headphones for slot on BaseOS. BaseOS ships the RTL8821CS
 # controller attach (setBluetooth.sh), BlueZ and BlueALSA; this script only
 # drives them. Verbs:
-#   on    attach the controller, start BlueZ and BlueALSA, reconnect paired headphones
-#   off   stop all of it and block the radio
-#   pair    search for headphones in pairing mode and pair, trust and connect the nearest
-#   status  print "<address> <name>" of the headphones BlueALSA can play to
-# Exit 0 on success, 3 when pair found no headphones, 1 otherwise.
+#   on        attach the controller, start BlueZ and BlueALSA, reconnect the remembered headphones
+#   off       power the adapter down and stop BlueALSA; the controller stays attached
+#   scan      search for about 12 s and print "rssi<TAB>paired<TAB>address<TAB>name" per headphones
+#   connect A pair (if needed), trust and connect the headphones at address A, and remember them
+#   status    print "<address> <name>" of the headphones BlueZ streams to
+#   debug     write everything BlueZ and BlueALSA know to the log
+# Exit 0 on success, 4 when pairing was refused (put the headphones in pairing
+# mode), 1 otherwise. Everything else goes to slot-bluetooth.log on the card.
 set -u
 
 SD="${SLOT_ROOT:-/mnt/sdcard}"
 LOG="${AGS_BT_LOG:-$SD/slot-bluetooth.log}"
+CONF="${AGS_BT_CONF:-$SD/bluetooth.conf}"
 HCI="${AGS_BT_HCI:-/sys/class/bluetooth/hci0}"
 VENDOR="${AGS_BT_VENDOR:-/mnt/vendor/ctrl/setBluetooth.sh}"
 VENDOR_LOCK="${AGS_BT_VENDOR_LOCK:-/tmp/.init_bt}"
@@ -21,6 +25,8 @@ SYSTEMCTL="${AGS_SYSTEMCTL:-systemctl}"
 SCAN_S="${AGS_BT_SCAN_S:-12}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
 STATUS_SEEN="${AGS_BT_STATUS_SEEN:-/tmp/slot-bt-status}"
+# A2DP volume (0-127) given to headphones that come up silent.
+VOLUME="${AGS_BT_VOLUME:-90}"
 
 log() {
 	echo "$(date '+%H:%M:%S') $*" >> "$LOG" 2>/dev/null
@@ -48,10 +54,15 @@ wait_for() {
 	eval "$1"
 }
 
+have_dbus() {
+	command -v "$DBUS_SEND" >/dev/null 2>&1
+}
+
 attach() {
 	[ -d "$HCI" ] && return 0
 	[ -f "$VENDOR" ] || { log "no $VENDOR, this BaseOS has no Bluetooth"; return 1; }
 	pidof rtk_hciattach >/dev/null 2>&1 && killall rtk_hciattach 2>/dev/null && sleep 1
+	# setBluetooth.sh skips the attach while its lock file exists.
 	rm -f "$VENDOR_LOCK"
 	log "attaching the controller"
 	sh "$VENDOR" init >> "$LOG" 2>&1
@@ -59,17 +70,27 @@ attach() {
 	attached=1
 }
 
+# Closing the PCM with keep-alive 0 made BlueALSA tear the A2DP stream down
+# within milliseconds (seen on the card), so ask it to hold the stream. The
+# option was renamed across BlueALSA versions; fall back until one starts.
+# --initial-volume keeps AirPods from coming up at volume zero.
 start_bluealsa() {
-	if pidof bluealsa >/dev/null 2>&1; then
-		return 0
-	fi
-	# Keep BlueALSA's own volume mode: AirPods otherwise come up at volume zero.
-	"$BLUEALSA" -p a2dp-source --initial-volume=100 < /dev/null >> "$LOG" 2>&1 &
-	sleep 1
 	pidof bluealsa >/dev/null 2>&1 && return 0
-	"$BLUEALSA" -p a2dp-source < /dev/null >> "$LOG" 2>&1 &
-	sleep 1
-	pidof bluealsa >/dev/null 2>&1 || { log "bluealsa would not start"; return 1; }
+	for opts in \
+		"-p a2dp-source --initial-volume=100 --keep-alive=3600" \
+		"-p a2dp-source --initial-volume=100 --a2dp-keep-alive=3600" \
+		"-p a2dp-source --initial-volume=100" \
+		"-p a2dp-source"; do
+		# shellcheck disable=SC2086
+		"$BLUEALSA" $opts < /dev/null >> "$LOG" 2>&1 &
+		sleep 1
+		if pidof bluealsa >/dev/null 2>&1; then
+			log "bluealsa $opts"
+			return 0
+		fi
+	done
+	log "bluealsa would not start"
+	return 1
 }
 
 up() {
@@ -88,8 +109,6 @@ up() {
 	btctl 5 pairable on >/dev/null
 	btctl 5 system-alias "$ALIAS" >/dev/null
 	start_bluealsa || return 1
-	# The RTL8821CS has no /opt/bdaddr here; if its address changes between
-	# attaches, BlueZ files the bonds under another adapter and forgets them.
 	log "bluetooth up, controller $(btctl 5 show | sed -n 's/^Controller \([0-9A-Fa-f:]\{17\}\).*/\1/p' | head -n 1)"
 }
 
@@ -97,25 +116,28 @@ addresses() {
 	sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p'
 }
 
-# Newer bluetoothctl dropped paired-devices and prints an error instead, so
-# judge each answer by the addresses in it, never by whether it said anything.
+known() {
+	btctl 5 devices | addresses
+}
+
+# Every device BlueZ marks paired, judged from each device's own info: the
+# list commands differ between bluetoothctl versions and one of them came
+# back empty on the card even right after a pairing.
 paired() {
-	list="$(btctl 5 paired-devices | addresses)"
-	[ -n "$list" ] || list="$(btctl 5 devices Paired | addresses)"
-	if [ -z "$list" ]; then
-		for mac in $(btctl 5 devices | addresses); do
-			btctl 5 info "$mac" | grep -q "Paired: yes" && list="$list $mac"
-		done
-	fi
-	printf '%s\n' $list
+	for mac in $(known); do
+		btctl 5 info "$mac" | grep -q "Paired: yes" && echo "$mac"
+	done
 }
 
 connected() {
 	btctl 5 info "$1" | grep -q "Connected: yes"
 }
 
-audio() {
-	btctl 5 info "$1" | grep -q -e "Icon: audio-" -e "Audio Sink"
+# Headphones and speakers carry the A2DP Audio Sink service (UUID 110b). An
+# "audio-*" icon is not enough: a TV advertising only Audio Source matched it
+# on the card, got paired, and then refused to connect.
+sink() {
+	printf '%s\n' "$1" | grep -q -i -e "0000110b-" -e "Audio Sink"
 }
 
 name_of() {
@@ -125,18 +147,24 @@ name_of() {
 	printf '%s\n' "${n% - Find My}"
 }
 
-have_dbus() {
-	command -v "$DBUS_SEND" >/dev/null 2>&1
+# bluetoothctl prints "RSSI: -60" or "RSSI: 0xffffffc4 (-60)"; -999 when unseen.
+rssi_of() {
+	r="$(printf '%s\n' "$1" | sed -n 's/.*RSSI:.*(\(-\{0,1\}[0-9]\{1,\}\)).*/\1/p' | head -n 1)"
+	[ -n "$r" ] || r="$(printf '%s\n' "$1" | sed -n 's/.*RSSI: \(-\{0,1\}[0-9]\{1,\}\)[[:space:]]*$/\1/p' | head -n 1)"
+	printf '%s\n' "${r:--999}"
 }
 
 # A link is not audio. BlueZ holds a media transport object
 # (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/sepN/fdN on this BlueZ) exactly while
-# an A2DP stream is configured, whatever BlueALSA version sits on top; this
-# BlueALSA's bluealsa-aplay has no -L to ask it instead. Prints the address of
-# every device with one.
-transports() {
+# an A2DP stream is configured, whatever BlueALSA version sits on top. Prints
+# the address of every device with one.
+managed() {
 	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
-		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
+		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null
+}
+
+transports() {
+	managed |
 		sed -n 's/.*\/dev_\([0-9A-Fa-f_]\{17\}\)\(\/sep[0-9]*\)\{0,1\}\/fd[0-9].*/\1/p' |
 		tr '_a-f' ':A-F' | sort -u
 }
@@ -144,8 +172,7 @@ transports() {
 # Object path of each media transport of one device.
 transport_paths() {
 	dev="dev_$(printf '%s' "$1" | tr ':' '_')"
-	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
-		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
+	managed |
 		sed -n 's/.*object path "\(\/org\/bluez\/hci[0-9]*\/'"$dev"'\(\/sep[0-9]*\)\{0,1\}\/fd[0-9]*\)".*/\1/p' |
 		sort -u
 }
@@ -157,12 +184,19 @@ transport_volume() {
 		sed -n 's/.*uint16 \([0-9]*\).*/\1/p' | head -n 1
 }
 
-# Only logged, never changed: the headphones keep their own volume. A stream
-# that plays in silence while they report 0 points here.
-log_volume() {
+# AirPods told the card their volume was 0 as the stream came up, which plays
+# in silence. Give silent headphones a volume; leave any other alone.
+fix_volume() {
 	have_dbus || return 0
 	for path in $(transport_paths "$1"); do
-		log "$1: headphone volume $(transport_volume "$path") (0-127)"
+		v="$(transport_volume "$path")"
+		log "$1: headphone volume ${v:-unknown} (0-127)"
+		if [ "${v:-1}" = 0 ]; then
+			"$DBUS_SEND" --system --print-reply --dest=org.bluez "$path" \
+				org.freedesktop.DBus.Properties.Set \
+				string:org.bluez.MediaTransport1 string:Volume "variant:uint16:$VOLUME" >/dev/null 2>&1
+			log "$1: set the headphone volume to $VOLUME"
+		fi
 	done
 }
 
@@ -186,15 +220,27 @@ connect() {
 			wait_for "a2dp_ready $1" 8 || { log "$1: still no A2DP stream"; return 1; }
 		fi
 	fi
-	log_volume "$1"
+	fix_volume "$1"
 	return 0
 }
 
+# The headphones the user chose, kept on the card so reconnecting never
+# depends on what BlueZ remembers.
+remembered() {
+	sed -n 's/^mac=//p' "$CONF" 2>/dev/null | head -n 1
+}
+
+remember() {
+	printf 'mac=%s\nname=%s\n' "$1" "$2" > "$CONF.tmp" 2>/dev/null && mv -f "$CONF.tmp" "$CONF"
+}
+
 reconnect() {
-	for mac in $(paired); do
-		audio "$mac" || continue
+	for mac in $(remembered) $(paired); do
+		info="$(btctl 5 info "$mac")"
+		[ -n "$info" ] && sink "$info" || continue
+		log "reconnecting $(name_of "$mac") ($mac)"
 		if connect "$mac"; then
-			log "reconnected $(name_of "$mac") ($mac)"
+			log "reconnected $(name_of "$mac")"
 			return 0
 		fi
 	done
@@ -209,7 +255,7 @@ status() {
 	else
 		macs=""
 		for mac in $(paired); do
-			audio "$mac" && connected "$mac" && macs="$macs $mac"
+			connected "$mac" && macs="$macs $mac"
 		done
 	fi
 	line=""
@@ -226,41 +272,19 @@ status() {
 	echo "$line"
 }
 
-# Print "rank rssi mac" for each headphone the last scan saw, best first.
-# AirPods can show up twice: as a classic device with a Class, which carries
-# audio, and as a Bluetooth LE "<name> - Find My" entry. Prefer the classic one
-# but never rule the other out, since BlueZ may merge both into one entry.
-headphones() {
-	for mac in $(btctl 5 devices | sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p'); do
+# Every sink BlueZ knows, nearest first, as "rssi<TAB>paired<TAB>mac<TAB>name".
+sinks() {
+	for mac in $(known); do
 		info="$(btctl 5 info "$mac")"
-		printf '%s\n' "$info" | grep -q -e "Icon: audio-" -e "Audio Sink" || continue
-		rank=0
-		printf '%s\n' "$info" | grep -q "Class:" && rank=1
-		rssi="$(printf '%s\n' "$info" | sed -n 's/.*RSSI: \(-\{0,1\}[0-9]*\).*/\1/p' | head -n 1)"
-		echo "$rank ${rssi:--999} $mac"
-	done | sort -k1,1nr -k2,2nr
+		sink "$info" || continue
+		p=0
+		printf '%s\n' "$info" | grep -q "Paired: yes" && p=1
+		printf '%s\t%s\t%s\t%s\n' "$(rssi_of "$info")" "$p" "$mac" "$(name_of "$mac")"
+	done | sort -t "$(printf '\t')" -k1,1nr
 }
 
-pair() {
+scan() {
 	up || return 1
-	# A scan while A2DP is up tears the stream down a few seconds later.
-	for mac in $(paired); do
-		if audio "$mac" && a2dp_ready "$mac"; then
-			log "$(name_of "$mac") ($mac) already playing, not searching"
-			return 0
-		fi
-	done
-	log "paired before: $(paired | tr '\n' ' ')"
-	# Headphones paired before need a connect, not a new pairing: pairing a
-	# bonded AirPods again hangs and ends in AuthenticationRejected.
-	for mac in $(paired); do
-		audio "$mac" || continue
-		log "trying $(name_of "$mac") ($mac), paired before"
-		if connect "$mac"; then
-			log "connected $(name_of "$mac")"
-			return 0
-		fi
-	done
 	log "searching for headphones"
 	{
 		echo "scan on"
@@ -268,57 +292,89 @@ pair() {
 		echo "scan off"
 		echo "quit"
 	} | "$BTCTL" > /dev/null 2>&1
-	found="$(headphones)"
-	log "candidates: $(printf '%s\n' "$found" | tr '\n' ';')"
-	mac="$(printf '%s\n' "$found" | head -n 1 | cut -d' ' -f3)"
-	if [ -z "$mac" ]; then
-		log "no headphones found"
-		return 3
+	found="$(sinks)"
+	log "found: $(printf '%s\n' "$found" | tr '\t' ' ' | tr '\n' ';')"
+	[ -n "$found" ] && printf '%s\n' "$found"
+	return 0
+}
+
+pair_with() {
+	btctl 5 info "$1" | grep -q "Paired: yes" && return 0
+	out="$(btctl 40 pair "$1")"
+	printf '%s\n' "$out" >> "$LOG"
+	wait_for "btctl 5 info $1 | grep -q 'Paired: yes'" 5 && return 0
+	# A stale bond makes BlueZ fail with AuthenticationRejected every time.
+	# Forget it so the next try, with the case in pairing mode, starts clean.
+	if printf '%s\n' "$out" | grep -q -e AuthenticationRejected -e AuthenticationFailed; then
+		btctl 10 remove "$1" >> "$LOG"
+		log "pairing refused; forgot $1, put the headphones in pairing mode and try again"
+		return 4
 	fi
+	log "pairing failed"
+	return 1
+}
+
+connect_to() {
+	mac="$1"
+	up || return 1
 	name="$(name_of "$mac")"
-	log "pairing ${name:-$mac} ($mac)"
-	if ! btctl 5 info "$mac" | grep -q "Paired: yes"; then
-		out="$(btctl 40 pair "$mac")"
-		printf '%s\n' "$out" >> "$LOG"
-		if ! wait_for "btctl 5 info $mac | grep -q 'Paired: yes'" 5; then
-			# A stale bond makes BlueZ fail with AuthenticationRejected every time.
-			# Forget it so the next press, with the case in pairing mode, starts clean.
-			if printf '%s\n' "$out" | grep -q -e AuthenticationRejected -e AuthenticationFailed; then
-				btctl 10 remove "$mac" >> "$LOG"
-				log "pairing rejected; forgot $mac, put the headphones in pairing mode and try again"
-			fi
-			log "pairing failed"
-			return 1
-		fi
-	fi
+	log "connecting ${name:-$mac} ($mac)"
+	pair_with "$mac" || return $?
 	btctl 5 trust "$mac" >/dev/null
-	connect "$mac" || { log "paired but would not connect"; return 1; }
+	if ! connect "$mac"; then
+		log "${name:-$mac} paired but would not connect"
+		debug
+		return 1
+	fi
+	remember "$mac" "$name"
 	log "connected ${name:-$mac}"
 }
 
 down() {
+	# The controller stays attached: re-running the vendor attach after an
+	# off hung the card once, and a powered-down adapter costs nothing.
 	if pidof bluetoothd >/dev/null 2>&1; then
 		btctl 5 scan off >/dev/null
 		btctl 5 power off >/dev/null
 	fi
 	killall bluetoothctl 2>/dev/null
 	killall bluealsa 2>/dev/null
-	"$SYSTEMCTL" stop bluetooth >> "$LOG" 2>&1
-	hciconfig hci0 down 2>/dev/null
-	killall rtk_hciattach 2>/dev/null
-	rm -f "$VENDOR_LOCK"
-	rfkill block bluetooth 2>/dev/null
+	rm -f "$STATUS_SEEN"
 	log "bluetooth off"
 	return 0
 }
 
+debug() {
+	{
+		echo "--- debug $(date '+%H:%M:%S')"
+		echo "remembered: $(remembered)"
+		echo "bluealsa pid: $(pidof bluealsa 2>/dev/null)"
+		echo "# show"; btctl 5 show
+		echo "# devices"; btctl 5 devices
+		echo "# devices Paired"; btctl 5 devices Paired
+		echo "# paired-devices"; btctl 5 paired-devices
+		for mac in $(known); do
+			echo "# info $mac"
+			btctl 5 info "$mac"
+		done
+		echo "# transports"; have_dbus && transports
+		echo "--- end debug"
+	} >> "$LOG" 2>&1
+	return 0
+}
+
 case "${1:-}" in
-	on) up && reconnect ;;
+	on) up && reconnect && debug ;;
 	off) down ;;
-	pair) pair ;;
+	scan) scan ;;
+	connect)
+		[ -n "${2:-}" ] || { echo "usage: $0 connect <address>" >&2; exit 1; }
+		connect_to "$2"
+		;;
 	status) status ;;
+	debug) debug ;;
 	*)
-		echo "usage: $0 on|off|pair|status" >&2
+		echo "usage: $0 on|off|scan|connect <address>|status|debug" >&2
 		exit 1
 		;;
 esac

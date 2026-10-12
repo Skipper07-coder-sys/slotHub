@@ -6,6 +6,7 @@ SCRIPT="$HERE/System/bluetooth.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 FAILS=0
+TAB="$(printf '\t')"
 
 fail() {
 	echo "FAIL: $*"
@@ -13,9 +14,10 @@ fail() {
 }
 
 # A fake bluetoothctl that answers from files under $TMP/bt: one directory per
-# device seen, holding its info text.
+# device seen, holding its info text. "A2DP: yes" in an info stands for a BlueZ
+# media transport, which the fake dbus-send lists.
 reset() {
-	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/hci0" "$TMP"/*.log
+	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/hci0" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
 	mkdir -p "$TMP/bin" "$TMP/run" "$TMP/bt"
 	cat > "$TMP/bin/bluetoothctl" <<FAKE
 #!/bin/sh
@@ -27,7 +29,7 @@ if [ "\$1" = paired-devices ] && [ -n "\${FAKE_NEW_BLUEZ:-}" ]; then
 fi
 case "\$1" in
 	"") cat >> "$TMP/btctl.log" ;;
-	show) echo "Powered: yes" ;;
+	show) echo "Controller 68:8F:C9:35:51:EB slot [default]"; echo "	Powered: yes" ;;
 	devices|paired-devices)
 		for d in "$TMP"/bt/*; do
 			[ -d "\$d" ] || continue
@@ -41,28 +43,26 @@ case "\$1" in
 		else
 			echo "	Paired: yes" >> "$TMP/bt/\$2/info"
 		fi ;;
-	connect) printf '\tConnected: yes\n\tA2DP: yes\n' >> "$TMP/bt/\$2/info" ;;
+	connect)
+		if grep -q "0000110b-" "$TMP/bt/\$2/info"; then
+			printf '\tConnected: yes\n\tA2DP: yes\n' >> "$TMP/bt/\$2/info"
+		else
+			echo "Failed to connect: org.bluez.Error.Failed br-connection-profile-unavailable"
+		fi ;;
 esac
 exit 0
 FAKE
-	# BlueZ lists a media transport only while A2DP is configured; "A2DP: yes"
-	# in a fake device's info stands for that.
-	# Headphone volume lives in \$TMP/volume; AirPods come up reporting 0.
 	cat > "$TMP/bin/dbus-send" <<FAKE
 #!/bin/sh
+echo "\$*" >> "$TMP/dbus.log"
 case "\$*" in
-	*Properties.Set*)
-		echo "\$*" >> "$TMP/dbus.log"
-		echo "\$*" | sed -n 's/.*variant:uint16:\([0-9]*\).*/\1/p' > "$TMP/volume"
-		exit 0 ;;
-	*Properties.Get*)
-		echo "   variant       uint16 \$(cat "$TMP/volume" 2>/dev/null || echo 0)"
-		exit 0 ;;
+	*GetManagedObjects*)
+		for d in "$TMP"/bt/*; do
+			grep -q "A2DP: yes" "\$d/info" 2>/dev/null || continue
+			echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/sep1/fd0\""
+		done ;;
+	*Properties.Get*Volume*) echo "variant uint16 \${FAKE_VOLUME:-64}" ;;
 esac
-for d in "$TMP"/bt/*; do
-	grep -q "A2DP: yes" "\$d/info" 2>/dev/null || continue
-	echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/sep1/fd0\""
-done
 FAKE
 	cat > "$TMP/bin/pidof" <<FAKE
 #!/bin/sh
@@ -71,6 +71,9 @@ FAKE
 	cat > "$TMP/bin/bluealsa" <<FAKE
 #!/bin/sh
 echo "\$*" >> "$TMP/bluealsa.log"
+case "\$*" in
+	*--keep-alive=*) [ -n "\${FAKE_OLD_BLUEALSA:-}" ] && exit 1 ;;
+esac
 : > "$TMP/run/bluealsa"
 FAKE
 	cat > "$TMP/bin/systemctl" <<FAKE
@@ -101,111 +104,134 @@ device() {
 	for line in "$@"; do printf '\t%s\n' "$line"; done > "$TMP/bt/$mac/info"
 }
 
+SINK="UUID: Audio Sink                (0000110b-0000-1000-8000-00805f9b34fb)"
+
 run() {
 	PATH="$TMP/bin:$PATH" \
-		AGS_BT_LOG="$TMP/bt.log" AGS_BT_HCI="$TMP/hci0" AGS_BT_VENDOR="$TMP/vendor.sh" \
-		AGS_BT_VENDOR_LOCK="$TMP/init_bt" AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 \
+		AGS_BT_LOG="$TMP/bt.log" AGS_BT_CONF="$TMP/bluetooth.conf" AGS_BT_HCI="$TMP/hci0" \
+		AGS_BT_VENDOR="$TMP/vendor.sh" AGS_BT_VENDOR_LOCK="$TMP/init_bt" \
+		AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 \
 		AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" \
-		sh "$SCRIPT" "$@" > /dev/null 2>&1
+		sh "$SCRIPT" "$@"
+}
+
+quiet() {
+	run "$@" > /dev/null 2>&1
 }
 
 reset
-run on && rc=0 || rc=$?
+quiet on && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "on exited $rc"
 [ -d "$TMP/hci0" ] || fail "on never attached the controller"
 grep -q "a2dp-source" "$TMP/bluealsa.log" 2>/dev/null || fail "on never started bluealsa as an A2DP source"
+grep -q -- "--keep-alive=" "$TMP/bluealsa.log" || fail "on did not ask bluealsa to keep the stream alive"
 grep -q "power on" "$TMP/btctl.log" || fail "on never powered the adapter"
+grep -q "^--- debug" "$TMP/bt.log" || fail "on did not write the debug dump"
+
+# An older bluealsa rejects --keep-alive: the next spelling is tried.
+reset
+FAKE_OLD_BLUEALSA=1 quiet on && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "on with an old bluealsa exited $rc"
+grep -q -- "--a2dp-keep-alive=" "$TMP/bluealsa.log" || fail "on did not fall back to the old keep-alive spelling"
+
+# Scan lists only devices that can play audio, nearest first, in both RSSI
+# spellings bluetoothctl uses. A TV with Audio Source only is not offered.
+reset
+device AA:AA:AA:AA:AA:01 "Name: Keyboard" "Icon: input-keyboard" "RSSI: -20"
+device AA:AA:AA:AA:AA:02 "Name: Far Speaker" "Class: 0x240414" "Icon: audio-card" "$SINK" "RSSI: 0xffffffb0 (-80)"
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "$SINK" "RSSI: -40"
+device AA:AA:AA:AA:AA:04 "Name: AirPods Pro - Find My" "Icon: audio-headphones" "RSSI: -30"
+device AA:AA:AA:AA:AA:05 "Name: 43PUS8909/12" "Class: 0x3c0000" "Icon: audio-card" "UUID: Audio Source (0000110a-0000-1000-8000-00805f9b34fb)" "RSSI: -35"
+out="$(run scan 2>/dev/null)" && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "scan exited $rc"
+want="-40${TAB}0${TAB}AA:AA:AA:AA:AA:03${TAB}AirPods Pro
+-80${TAB}0${TAB}AA:AA:AA:AA:AA:02${TAB}Far Speaker"
+[ "$out" = "$want" ] || fail "scan printed:
+$out"
+grep -q "^scan on" "$TMP/btctl.log" || fail "scan never searched"
 
 reset
 device AA:AA:AA:AA:AA:01 "Name: Keyboard" "Icon: input-keyboard" "RSSI: -20"
-device AA:AA:AA:AA:AA:02 "Name: Far Speaker" "Class: 0x240414" "Icon: audio-card" "RSSI: -80"
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "RSSI: -40"
-device AA:AA:AA:AA:AA:04 "Name: AirPods Pro - Find My" "Icon: audio-headphones" "UUID: Audio Sink" "RSSI: -30"
-run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair exited $rc"
-grep -q "^pair AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair did not pick the nearest headphones"
-grep -q "^trust AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair did not trust them"
-grep -q "Connected: yes" "$TMP/bt/AA:AA:AA:AA:AA:03/info" || fail "pair did not connect them"
-grep -q "^pair AA:AA:AA:AA:AA:01" "$TMP/btctl.log" && fail "pair paired a keyboard"
-grep -q "^pair AA:AA:AA:AA:AA:04" "$TMP/btctl.log" && fail "pair paired the LE Find My entry, which carries no audio"
+out="$(run scan 2>/dev/null)" && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "scan with nothing to play to exited $rc"
+[ -z "$out" ] || fail "scan offered a keyboard: '$out'"
+
+# Connect pairs, trusts, asks for the audio profiles and remembers the choice.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "$SINK" "RSSI: -40"
+quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "connect exited $rc"
+grep -q "^pair AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect did not pair"
+grep -q "^trust AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect did not trust"
+grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect never asked for the audio profiles"
+grep -q "^mac=AA:AA:AA:AA:AA:03$" "$TMP/bluetooth.conf" || fail "connect did not remember the headphones"
+grep -q "^name=AirPods Pro$" "$TMP/bluetooth.conf" || fail "connect did not remember their name"
+grep -q "^scan on" "$TMP/btctl.log" && fail "connect searched, which drops A2DP"
+
+# Headphones already bonded get a connect, never a second pairing.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes"
+quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "connect on bonded headphones exited $rc"
+grep -q "^pair " "$TMP/btctl.log" && fail "connect paired headphones that were already bonded"
+grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect trusted a link with no A2DP and never asked"
+
+# Headphones already playing are left alone.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes" "A2DP: yes"
+quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "connect on playing headphones exited $rc"
+grep -q "^connect " "$TMP/btctl.log" && fail "connect reconnected headphones that were already playing"
+
+# Silent headphones get a volume; others keep theirs.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes" "A2DP: yes"
+FAKE_VOLUME=0 quiet connect AA:AA:AA:AA:AA:03
+grep -q "Properties.Set.*Volume variant:uint16:90" "$TMP/dbus.log" || fail "connect left silent headphones at volume 0"
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes" "A2DP: yes"
+quiet connect AA:AA:AA:AA:AA:03
+grep -q "Properties.Set" "$TMP/dbus.log" && fail "connect changed a volume that was not zero"
 
 reset
-device AA:AA:AA:AA:AA:01 "Name: Keyboard" "Icon: input-keyboard" "RSSI: -20"
-run pair && rc=0 || rc=$?
-[ "$rc" = 3 ] || fail "pair with no headphones exited $rc, not 3"
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "$SINK" "RSSI: -40"
+FAKE_REJECT=1 quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 4 ] || fail "a refused pairing exited $rc, not 4"
+grep -q "^remove AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "a refused pairing did not forget the stale bond"
+[ -e "$TMP/bluetooth.conf" ] && fail "a refused pairing was remembered"
 
+# A device without a sink pairs but cannot connect: that fails with a dump.
 reset
-device AA:AA:AA:AA:AA:03 "Alias: Le battonetes 2 - Find My" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
-run on && rc=0 || rc=$?
-grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "on did not reconnect paired headphones"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
+device AA:AA:AA:AA:AA:05 "Name: 43PUS8909/12" "Icon: audio-card" "UUID: Audio Source (0000110a-0000-1000-8000-00805f9b34fb)"
+quiet connect AA:AA:AA:AA:AA:05 && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "connect to a TV exited $rc, not 1"
+grep -q "^--- debug" "$TMP/bt.log" || fail "a failed connect did not dump the debug state"
+
+# On reconnects the remembered headphones even when BlueZ lists nothing as paired.
+reset
+device AA:AA:AA:AA:AA:03 "Alias: Le battonetes 2 - Find My" "$SINK" "Paired: yes"
+printf 'mac=AA:AA:AA:AA:AA:03\nname=Le battonetes 2\n' > "$TMP/bluetooth.conf"
+FAKE_NEW_BLUEZ=1 quiet on && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "on with remembered headphones exited $rc"
+grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "on did not reconnect the remembered headphones"
+out="$(run status 2>/dev/null)" || true
 [ "$out" = "AA:AA:AA:AA:AA:03 Le battonetes 2" ] || fail "status printed '$out'"
-
-reset
-device AA:AA:AA:AA:AA:04 "Name: AirPods Pro - Find My" "Icon: audio-headphones" "UUID: Audio Sink" "RSSI: -30"
-run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair with only the merged LE entry exited $rc"
-grep -q "^connect AA:AA:AA:AA:AA:04" "$TMP/btctl.log" || fail "pair never asked the only headphones to connect"
-
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
-[ -z "$out" ] || fail "status called linked headphones with no A2DP stream connected: '$out'"
-run on && rc=0 || rc=$?
-grep -q "disconnect" "$TMP/btctl.log" && fail "on disconnected headphones it could not confirm"
-
-# Pairing leaves AirPods linked with no A2DP. A press must ask for the profiles,
-# not trust the link, and not search or pair a bonded device again.
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
-run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair with linked but silent headphones exited $rc"
-grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair trusted a link with no A2DP and never asked to connect"
-grep -q "^pair " "$TMP/btctl.log" && fail "pair paired headphones that were already bonded"
-grep -q "^scan on" "$TMP/btctl.log" && fail "pair searched instead of connecting bonded headphones"
-
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes" "Connected: yes" "A2DP: yes"
-run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair with headphones already connected exited $rc"
-grep -q "^connect " "$TMP/btctl.log" && fail "pair reconnected headphones that were already playing"
-grep -q "^scan on" "$TMP/btctl.log" && fail "pair scanned while headphones were connected, which drops A2DP"
-
-# The headphones' own volume is his: a connect logs it and never sets it.
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
-run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair of bonded headphones exited $rc"
-grep -q "Properties.Set" "$TMP/dbus.log" 2>/dev/null && fail "connect changed the headphones' volume"
-grep -q "AA:AA:AA:AA:AA:03: headphone volume 0 (0-127)" "$TMP/bt.log" || fail "connect did not log the headphone volume"
-
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "RSSI: -40"
-FAKE_REJECT=1 run pair && rc=0 || rc=$?
-[ "$rc" = 1 ] || fail "a rejected pairing exited $rc, not 1"
-grep -q "^remove AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "a rejected pairing did not forget the stale bond"
-
-# On a newer bluetoothctl paired-devices is an error, not a list: bonded
-# headphones must still be found and connected without a new search.
-reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
-FAKE_NEW_BLUEZ=1 run pair && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "pair on a newer bluetoothctl exited $rc"
-grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair on a newer bluetoothctl never connected bonded headphones"
-grep -q "^scan on" "$TMP/btctl.log" && fail "pair on a newer bluetoothctl searched instead of connecting"
-
-# Status follows the A2DP transport alone, whatever BlueZ says about pairing.
-reset
-device AA:AA:AA:AA:AA:03 "Alias: Le Battonetes 2 - Find My" "Icon: audio-headphones" "A2DP: yes"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
-[ "$out" = "AA:AA:AA:AA:AA:03 Le Battonetes 2" ] || fail "status missed a live transport: '$out'"
 grep -q "status: AA:AA:AA:AA:AA:03" "$TMP/bt.log" || fail "status did not log what it found"
+
+# Status follows the A2DP transport alone; a mere link is not Connected.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes"
+out="$(run status 2>/dev/null)" || true
+[ -z "$out" ] || fail "status called linked headphones with no A2DP stream connected: '$out'"
 
 reset
 : > "$TMP/run/bluetoothd"
-run off && rc=0 || rc=$?
+mkdir -p "$TMP/hci0"
+quiet off && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "off exited $rc"
-[ -e "$TMP/run/bluetoothd" ] && fail "off left bluetoothd running"
+grep -q "^power off" "$TMP/btctl.log" || fail "off did not power the adapter down"
+grep -q "stop" "$TMP/systemctl.log" 2>/dev/null && fail "off stopped bluetoothd, which forces a controller re-attach"
+[ -d "$TMP/hci0" ] || fail "off detached the controller"
 
 if [ "$FAILS" -gt 0 ]; then
 	echo "$FAILS bluetooth.sh check(s) failed"

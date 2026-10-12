@@ -258,7 +258,10 @@ impl Playback {
         let mut silence = Silence::new(RELEASE_AFTER);
         while !stop.load(Ordering::Relaxed) {
             ring.fill(&mut buf);
-            let hold = silence.hear(&buf, span);
+            // Closing the PCM over Bluetooth ends the A2DP stream (this
+            // BlueALSA keeps nothing alive), and slot then reads the
+            // headphones as gone, so headphones get silence written to them.
+            let hold = silence.hear(&buf, span) || route::wants_bluetooth();
             self.follow_route();
             match (self.pcm, hold) {
                 (Some(_), false) => {
