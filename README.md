@@ -118,16 +118,21 @@ again the day you switch it off, along with your fast-forward, rewind and turbo 
 Open the settings with `MENU` and choose Bluetooth.
 
 - **Bluetooth** switches the radio on or off. It stays as you left it across restarts, and
-  when it is on slot reconnects headphones it has paired before.
-- **Headphones** shows whether a pair is connected. Put the headphones in pairing mode (for
-  AirPods, until the case light flashes white), then press `A`.
-  slot searches for about 12 seconds and pairs with the nearest headphones it finds.
+  when it is on slot reconnects the headphones you chose last.
+- **Headphones** shows whether a pair is connected, and its name. Press `A` to reconnect
+  the pair you chose before.
+- **Choose Headphones** searches for about 12 seconds and lists every pair of headphones
+  or speaker it hears, nearest first. Put yours in pairing mode first (for AirPods, hold
+  the case button until the light flashes white), pick them and press `A`. slot pairs,
+  trusts and connects them, and remembers them in `bluetooth.conf` at the root of the card.
+  `X` searches again.
 
-While headphones are connected the game plays through them and the volume keys use the
-headphone volume. If they disconnect, sound moves back to the speaker. What the script did
-is logged to `slot-bluetooth.log` at the root of the card.
+While headphones are connected the game's sound goes to them instead of the speaker, and
+slot keeps the stream open even in silence, since this BlueALSA drops it otherwise. The
+radio and BlueALSA are driven by `System/bluetooth.sh`; it logs everything it does, and a
+dump of what BlueZ knows after every start and failed connect, to `slot-bluetooth.log` at
+the root of the card.
 
----
 # Wi-Fi
 
 slot can join your home Wi-Fi so you can reach the card over the network. Open the quick menu,

@@ -14,12 +14,12 @@ use slot_store::{
 };
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
-    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, ClockPicker,
-    Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
-    SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W,
-    HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
-    TURN_PAD,
+    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
+    BtSetup, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed,
+    Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey,
+    SetupOutcome, Shelf, SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H,
+    CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U,
+    SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::audio::Sfx;
@@ -263,6 +263,9 @@ pub enum Phase {
     WifiSetup {
         setup: WifiSetup,
     },
+    BtSetup {
+        setup: BtSetup,
+    },
 }
 
 pub struct App {
@@ -359,6 +362,7 @@ pub struct App {
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
     bt: Box<dyn BtJobs>,
+    bt_setup_face: Option<TexId>,
     wifi: Box<dyn WifiJobs>,
     wifi_setup_face: Option<TexId>,
     state_writer: crate::state_writer::StateWriter,
@@ -399,6 +403,7 @@ impl App {
         App {
             radio: radio_jobs(),
             bt: bt_jobs(),
+            bt_setup_face: None,
             wifi: wifi_jobs(),
             wifi_setup_face: None,
             state_writer,
@@ -701,6 +706,7 @@ impl App {
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Bluetooth
+            | QuickRow::BtChoose
             | QuickRow::Wifi
             | QuickRow::WifiChoose => None,
         }
@@ -716,9 +722,9 @@ impl App {
     fn headphones_value(&self) -> QuickValue {
         match self.bt.state() {
             BtState::Starting => QuickValue::Starting,
-            BtState::Searching => QuickValue::Searching,
+            BtState::Connecting => QuickValue::Connecting,
             _ if self.bt_connected => QuickValue::Connected,
-            BtState::NoneFound if self.state.bluetooth => QuickValue::NoneFound,
+            BtState::Refused if self.state.bluetooth => QuickValue::Refused,
             BtState::Failed if self.state.bluetooth => QuickValue::Failed,
             _ => QuickValue::NotConnected,
         }
@@ -1394,6 +1400,7 @@ impl App {
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::WifiSetup { .. } => self.wifi_setup_input(action),
+            Phase::BtSetup { .. } => self.bt_setup_input(action),
             _ => {}
         }
     }
@@ -1429,7 +1436,8 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
-            QuickRow::BtHeadphones => self.pair_headphones(),
+            QuickRow::BtHeadphones => self.reconnect_headphones(),
+            QuickRow::BtChoose => self.open_bt_setup(),
             QuickRow::WifiChoose => self.open_wifi_setup(),
             QuickRow::Screen | QuickRow::Game | QuickRow::Bluetooth | QuickRow::Wifi => {
                 if let Some(row) = row.child_in(self.pure) {
@@ -1539,7 +1547,9 @@ impl App {
         }
     }
 
-    fn pair_headphones(&mut self) {
+    // A on Headphones asks the radio to come up and reconnect the headphones
+    // remembered on the card; a new pair is chosen from the list instead.
+    fn reconnect_headphones(&mut self) {
         if self.bt.state().busy() || self.bt_connected {
             return;
         }
@@ -1547,7 +1557,107 @@ impl App {
             self.state.bluetooth = true;
             self.persist();
         }
-        self.bt.ask(BtJob::Pair);
+        self.bt.ask(BtJob::On);
+    }
+
+    fn open_bt_setup(&mut self) {
+        if !self.state.bluetooth {
+            self.state.bluetooth = true;
+            self.persist();
+        }
+        self.bt.scan();
+        self.phase = Phase::BtSetup {
+            setup: BtSetup::Scanning,
+        };
+    }
+
+    pub fn bt_setup(&self) -> Option<&BtSetup> {
+        match &self.phase {
+            Phase::BtSetup { setup } => Some(setup),
+            _ => None,
+        }
+    }
+
+    pub fn set_bt_setup_face(&mut self, face: TexId) {
+        self.bt_setup_face = Some(face);
+    }
+
+    fn bt_setup_input(&mut self, action: Action) {
+        let key = match action {
+            Action::GbaDown(Btn::Up) => SetupKey::Up,
+            Action::GbaDown(Btn::Down) => SetupKey::Down,
+            Action::GbaDown(Btn::Left) => SetupKey::Left,
+            Action::GbaDown(Btn::Right) => SetupKey::Right,
+            Action::GbaDown(Btn::A) => SetupKey::A,
+            Action::GbaDown(Btn::B) => SetupKey::B,
+            Action::GbaDown(Btn::X) => SetupKey::X,
+            Action::GbaDown(Btn::Y) => SetupKey::Y,
+            Action::GbaDown(Btn::Start) => SetupKey::Start,
+            Action::QuickMenu => {
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::BtChoose,
+                };
+                return;
+            }
+            _ => return,
+        };
+        let Phase::BtSetup { setup } = &mut self.phase else {
+            return;
+        };
+        match setup.press(key) {
+            BtOutcome::Stay => {}
+            BtOutcome::Rescan => self.open_bt_setup(),
+            BtOutcome::Back => {
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::BtChoose,
+                }
+            }
+            BtOutcome::Connect { mac, name } => {
+                self.bt.ask(BtJob::Connect(mac));
+                self.phase = Phase::BtSetup {
+                    setup: BtSetup::Connecting { name },
+                };
+            }
+        }
+    }
+
+    // The list fills in when the scan returns; a connect ends back on the
+    // Headphones row, or on a screen saying why it did not.
+    fn bt_setup_timers(&mut self) {
+        let Phase::BtSetup { setup } = &self.phase else {
+            return;
+        };
+        match setup {
+            BtSetup::Scanning => {
+                if let Some(found) = self.bt.scanned() {
+                    self.phase = Phase::BtSetup {
+                        setup: BtSetup::scanned(found),
+                    };
+                }
+            }
+            BtSetup::Connecting { name } => {
+                let name = name.clone();
+                match self.bt.state() {
+                    BtState::Ready => {
+                        self.phase = Phase::QuickMenu {
+                            row: QuickRow::BtHeadphones,
+                        }
+                    }
+                    BtState::Refused => {
+                        self.phase = Phase::BtSetup {
+                            setup: BtSetup::Refused { name },
+                        }
+                    }
+                    BtState::Failed | BtState::Off => {
+                        self.phase = Phase::BtSetup {
+                            setup: BtSetup::Failed { name },
+                        }
+                    }
+                    BtState::Starting | BtState::Connecting => {}
+                }
+            }
+            _ => {}
+        }
     }
 
     fn change_setting(&mut self, row: QuickRow, right: bool) {
@@ -1602,9 +1712,10 @@ impl App {
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Bluetooth
-            | QuickRow::BtHeadphones
+            | QuickRow::BtChoose
             | QuickRow::Wifi
             | QuickRow::WifiChoose => return,
+            QuickRow::BtHeadphones => return self.reconnect_headphones(),
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
         }
         self.persist();
@@ -1957,6 +2068,7 @@ impl App {
     fn timers(&mut self) {
         self.play_hold();
         self.wifi_setup_timers();
+        self.bt_setup_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);
@@ -2254,6 +2366,10 @@ impl App {
             }
             Phase::WifiSetup { .. } => {
                 WifiSetup::draw(self.wifi_setup_face, out);
+                return;
+            }
+            Phase::BtSetup { .. } => {
+                BtSetup::draw(self.bt_setup_face, out);
                 return;
             }
             Phase::Inserting { cart, resumed, .. } => {

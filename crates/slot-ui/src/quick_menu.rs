@@ -23,6 +23,7 @@ pub enum QuickRow {
     Bluetooth,
     BtPower,
     BtHeadphones,
+    BtChoose,
     Wifi,
     WifiPower,
     WifiNetwork,
@@ -30,7 +31,7 @@ pub enum QuickRow {
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 21] = [
+    pub const ALL: [QuickRow; 22] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -48,6 +49,7 @@ impl QuickRow {
         QuickRow::Bluetooth,
         QuickRow::BtPower,
         QuickRow::BtHeadphones,
+        QuickRow::BtChoose,
         QuickRow::Wifi,
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
@@ -81,7 +83,11 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
-    pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
+    pub const BLUETOOTH: [QuickRow; 3] = [
+        QuickRow::BtPower,
+        QuickRow::BtHeadphones,
+        QuickRow::BtChoose,
+    ];
     pub const WIFI: [QuickRow; 3] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
@@ -102,7 +108,7 @@ impl QuickRow {
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
-            QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
+            QuickRow::BtPower | QuickRow::BtHeadphones | QuickRow::BtChoose => &QuickRow::BLUETOOTH,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
@@ -177,6 +183,7 @@ impl QuickRow {
             QuickRow::GbPalettes => "GB Palettes",
             QuickRow::Bluetooth | QuickRow::BtPower => "Bluetooth",
             QuickRow::BtHeadphones => "Headphones",
+            QuickRow::BtChoose => "Choose Headphones",
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
             QuickRow::WifiChoose => "Choose Network",
@@ -191,7 +198,7 @@ impl QuickRow {
                 | QuickRow::Screen
                 | QuickRow::Game
                 | QuickRow::Bluetooth
-                | QuickRow::BtHeadphones
+                | QuickRow::BtChoose
                 | QuickRow::Wifi
                 | QuickRow::WifiChoose
         )
@@ -231,8 +238,8 @@ pub enum QuickValue {
     Connected,
     NotConnected,
     Starting,
-    Searching,
-    NoneFound,
+    Connecting,
+    Refused,
     Failed,
     Joining,
     Online,
@@ -257,8 +264,8 @@ impl QuickValue {
         QuickValue::Connected,
         QuickValue::NotConnected,
         QuickValue::Starting,
-        QuickValue::Searching,
-        QuickValue::NoneFound,
+        QuickValue::Connecting,
+        QuickValue::Refused,
         QuickValue::Failed,
         QuickValue::Joining,
         QuickValue::Online,
@@ -287,8 +294,8 @@ impl QuickValue {
             QuickValue::Connected => "Connected",
             QuickValue::NotConnected => "Not Connected",
             QuickValue::Starting => "Starting...",
-            QuickValue::Searching => "Searching...",
-            QuickValue::NoneFound => "None Found",
+            QuickValue::Connecting => "Connecting...",
+            QuickValue::Refused => "Pairing Refused",
             QuickValue::Failed => "Failed",
             QuickValue::Joining => "Joining...",
             QuickValue::Online => "Connected",
@@ -396,7 +403,7 @@ pub fn quick_legend_faces() -> [UndoFace; 4] {
         hint_face("B", "Back"),
         arrows_hint_face("Change"),
         hint_face("A", "Open"),
-        hint_face("A", "Pair"),
+        hint_face("A", "Connect"),
     ]
 }
 
@@ -468,9 +475,9 @@ impl QuickMenu<'_> {
             push(out, tex, vx, y, w, h);
             push(out, left_tex, vx + pad - CARET_GAP - lw as f32, y, lw, lh);
         }
-        let [back, change, open, pair] = faces.legend;
+        let [back, change, open, connect] = faces.legend;
         let other = match self.row {
-            QuickRow::BtHeadphones => pair,
+            QuickRow::BtHeadphones => connect,
             row if row.opens() => open,
             _ => change,
         };
