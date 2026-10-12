@@ -47,8 +47,18 @@ exit 0
 FAKE
 	# BlueZ lists a media transport only while A2DP is configured; "A2DP: yes"
 	# in a fake device's info stands for that.
+	# Headphone volume lives in \$TMP/volume; AirPods come up reporting 0.
 	cat > "$TMP/bin/dbus-send" <<FAKE
 #!/bin/sh
+case "\$*" in
+	*Properties.Set*)
+		echo "\$*" >> "$TMP/dbus.log"
+		echo "\$*" | sed -n 's/.*variant:uint16:\([0-9]*\).*/\1/p' > "$TMP/volume"
+		exit 0 ;;
+	*Properties.Get*)
+		echo "   variant       uint16 \$(cat "$TMP/volume" 2>/dev/null || echo 0)"
+		exit 0 ;;
+esac
 for d in "$TMP"/bt/*; do
 	grep -q "A2DP: yes" "\$d/info" 2>/dev/null || continue
 	echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/sep1/fd0\""
@@ -160,6 +170,14 @@ run pair && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "pair with headphones already connected exited $rc"
 grep -q "^connect " "$TMP/btctl.log" && fail "pair reconnected headphones that were already playing"
 grep -q "^scan on" "$TMP/btctl.log" && fail "pair scanned while headphones were connected, which drops A2DP"
+
+# The headphones' own volume is his: a connect logs it and never sets it.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
+run pair && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "pair of bonded headphones exited $rc"
+grep -q "Properties.Set" "$TMP/dbus.log" 2>/dev/null && fail "connect changed the headphones' volume"
+grep -q "AA:AA:AA:AA:AA:03: headphone volume 0 (0-127)" "$TMP/bt.log" || fail "connect did not log the headphone volume"
 
 reset
 device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "RSSI: -40"

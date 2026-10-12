@@ -88,7 +88,9 @@ up() {
 	btctl 5 pairable on >/dev/null
 	btctl 5 system-alias "$ALIAS" >/dev/null
 	start_bluealsa || return 1
-	log "bluetooth up"
+	# The RTL8821CS has no /opt/bdaddr here; if its address changes between
+	# attaches, BlueZ files the bonds under another adapter and forgets them.
+	log "bluetooth up, controller $(btctl 5 show | sed -n 's/^Controller \([0-9A-Fa-f:]\{17\}\).*/\1/p' | head -n 1)"
 }
 
 addresses() {
@@ -139,6 +141,31 @@ transports() {
 		tr '_a-f' ':A-F' | sort -u
 }
 
+# Object path of each media transport of one device.
+transport_paths() {
+	dev="dev_$(printf '%s' "$1" | tr ':' '_')"
+	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
+		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
+		sed -n 's/.*object path "\(\/org\/bluez\/hci[0-9]*\/'"$dev"'\(\/sep[0-9]*\)\{0,1\}\/fd[0-9]*\)".*/\1/p' |
+		sort -u
+}
+
+transport_volume() {
+	"$DBUS_SEND" --system --print-reply --dest=org.bluez "$1" \
+		org.freedesktop.DBus.Properties.Get \
+		string:org.bluez.MediaTransport1 string:Volume 2>/dev/null |
+		sed -n 's/.*uint16 \([0-9]*\).*/\1/p' | head -n 1
+}
+
+# Only logged, never changed: the headphones keep their own volume. A stream
+# that plays in silence while they report 0 points here.
+log_volume() {
+	have_dbus || return 0
+	for path in $(transport_paths "$1"); do
+		log "$1: headphone volume $(transport_volume "$path") (0-127)"
+	done
+}
+
 a2dp_ready() {
 	if ! have_dbus; then
 		# No way to see the stream: count the link, and let connect() ask anyway.
@@ -151,14 +178,16 @@ a2dp_ready() {
 # Pairing leaves AirPods linked with no A2DP: always ask for the profiles
 # explicitly unless a stream already exists. Never disconnect here.
 connect() {
-	have_dbus && a2dp_ready "$1" && return 0
-	btctl 15 connect "$1" >> "$LOG"
-	wait_for "a2dp_ready $1" 8 && return 0
-	log "$1: no A2DP stream yet, asking again"
-	btctl 15 connect "$1" >> "$LOG"
-	wait_for "a2dp_ready $1" 8 && return 0
-	log "$1: still no A2DP stream"
-	return 1
+	if ! { have_dbus && a2dp_ready "$1"; }; then
+		btctl 15 connect "$1" >> "$LOG"
+		if ! wait_for "a2dp_ready $1" 8; then
+			log "$1: no A2DP stream yet, asking again"
+			btctl 15 connect "$1" >> "$LOG"
+			wait_for "a2dp_ready $1" 8 || { log "$1: still no A2DP stream"; return 1; }
+		fi
+	fi
+	log_volume "$1"
+	return 0
 }
 
 reconnect() {
