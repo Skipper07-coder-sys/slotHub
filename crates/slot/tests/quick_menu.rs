@@ -118,8 +118,8 @@ fn up_and_down_move_the_bar_and_wrap_at_the_ends() {
     for want in [
         QuickRow::Screen,
         QuickRow::Game,
-        QuickRow::Bluetooth,
         QuickRow::Wifi,
+        QuickRow::Bluetooth,
         QuickRow::Update,
         QuickRow::DateTime,
         QuickRow::About,
