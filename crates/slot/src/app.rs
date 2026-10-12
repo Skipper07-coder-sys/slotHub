@@ -739,13 +739,13 @@ impl App {
             QuickRow::SlotUpdate => Some(self.update_text(UpdateJob::Slot)),
             QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
             QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
-            QuickRow::Wifi => Some(self.wifi_row_text()),
+            QuickRow::Wifi | QuickRow::WifiNetwork => Some(self.wifi_row_text()),
             QuickRow::Bluetooth => Some(self.bt_row_text()),
             _ => None,
         }
     }
 
-    /// What the main page's Wi-Fi row says: the network's name once joined.
+    /// What the Wi-Fi rows say: the network's name once joined.
     fn wifi_row_text(&self) -> String {
         match self.network_value() {
             QuickValue::Online => self
