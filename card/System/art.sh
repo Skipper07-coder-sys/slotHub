@@ -55,7 +55,7 @@ plain() {
 }
 
 get() {
-	$CURL -fsSL -g --connect-timeout 10 --max-time 60 -H 'User-Agent: slot-art' -o "$2" "$1"
+	$CURL -fsSL -g --connect-timeout 10 --max-time 60 -H 'User-Agent: slot-art' -o "$2" "$1" 2>/dev/null
 }
 
 # The server's names for one system, fetched once a run, each after its plain
