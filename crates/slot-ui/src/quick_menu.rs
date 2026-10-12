@@ -28,10 +28,13 @@ pub enum QuickRow {
     WifiPower,
     WifiNetwork,
     WifiChoose,
+    Update,
+    SlotUpdate,
+    BaseOsUpdate,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 22] = [
+    pub const ALL: [QuickRow; 25] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -54,13 +57,17 @@ impl QuickRow {
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
         QuickRow::WifiChoose,
+        QuickRow::Update,
+        QuickRow::SlotUpdate,
+        QuickRow::BaseOsUpdate,
     ];
 
-    pub const MAIN: [QuickRow; 6] = [
+    pub const MAIN: [QuickRow; 7] = [
         QuickRow::Screen,
         QuickRow::Game,
-        QuickRow::Bluetooth,
         QuickRow::Wifi,
+        QuickRow::Bluetooth,
+        QuickRow::Update,
         QuickRow::DateTime,
         QuickRow::About,
     ];
@@ -88,6 +95,16 @@ impl QuickRow {
         QuickRow::BtHeadphones,
         QuickRow::BtChoose,
     ];
+    pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
+
+    /// Rows whose value is text the app sets as it changes.
+    pub const LIVE: [QuickRow; 4] = [
+        QuickRow::DateTime,
+        QuickRow::SlotUpdate,
+        QuickRow::BaseOsUpdate,
+        QuickRow::BtHeadphones,
+    ];
+
     pub const WIFI: [QuickRow; 3] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
@@ -110,6 +127,7 @@ impl QuickRow {
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones | QuickRow::BtChoose => &QuickRow::BLUETOOTH,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
+            QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -133,6 +151,7 @@ impl QuickRow {
             QuickRow::FastForward => Some(QuickRow::Game),
             QuickRow::BtPower => Some(QuickRow::Bluetooth),
             QuickRow::WifiPower => Some(QuickRow::Wifi),
+            QuickRow::SlotUpdate => Some(QuickRow::Update),
             _ => None,
         }
     }
@@ -146,6 +165,7 @@ impl QuickRow {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
             QuickRow::Bluetooth => Some(QuickRow::BLUETOOTH[0]),
             QuickRow::Wifi => Some(QuickRow::WIFI[0]),
+            QuickRow::Update => Some(QuickRow::UPDATE[0]),
             QuickRow::Game => Some(match pure {
                 true => QuickRow::GAME_PURE[0],
                 false => QuickRow::GAME[0],
@@ -187,6 +207,9 @@ impl QuickRow {
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
             QuickRow::WifiChoose => "Choose Network",
+            QuickRow::Update => "Update",
+            QuickRow::SlotUpdate => "slot",
+            QuickRow::BaseOsUpdate => "BaseOS",
         }
     }
 
@@ -201,6 +224,9 @@ impl QuickRow {
                 | QuickRow::BtChoose
                 | QuickRow::Wifi
                 | QuickRow::WifiChoose
+                | QuickRow::Update
+                | QuickRow::SlotUpdate
+                | QuickRow::BaseOsUpdate
         )
     }
 
@@ -414,12 +440,15 @@ pub struct QuickMenuFaces {
     pub legend: [(TexId, u32); 4],
 }
 
+/// The dim and lit faces of a row whose text the frontend keeps current, one
+/// slot per row so the menu can look its own row up.
+pub type LiveFaces = [Option<[(TexId, u32, u32); 2]>; QuickRow::ALL.len()];
+
 pub struct QuickMenu<'a> {
     pub row: QuickRow,
     pub pure: bool,
     pub values: [Option<QuickValue>; QuickRow::ALL.len()],
-    pub clock: Option<[(TexId, u32, u32); 2]>,
-    pub device: Option<[(TexId, u32, u32); 2]>,
+    pub live: &'a LiveFaces,
     pub faces: Option<&'a QuickMenuFaces>,
 }
 
@@ -450,12 +479,8 @@ impl QuickMenu<'_> {
                 push(out, tex, QUICK_EDGE - pad, y, w, h);
             }
             let value = match row {
-                QuickRow::DateTime => self.clock.map(|c| c[lit as usize]),
-                QuickRow::BtHeadphones
-                    if self.values[row.index()] == Some(QuickValue::Connected)
-                        && self.device.is_some() =>
-                {
-                    self.device.map(|c| c[lit as usize])
+                row if QuickRow::LIVE.contains(&row) && self.live[row.index()].is_some() => {
+                    self.live[row.index()].map(|c| c[lit as usize])
                 }
                 _ => self.values[row.index()]
                     .and_then(|v| faces.values.get(v.index()))

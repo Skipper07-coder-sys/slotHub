@@ -15,11 +15,11 @@ use slot_store::{
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
     draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
-    BtSetup, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed,
-    Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey,
-    SetupOutcome, Shelf, SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H,
-    CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U,
-    SOCKET_V, SOCKET_W, TURN_PAD,
+    BtSetup, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis,
+    Placed, Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal,
+    SetupKey, SetupOutcome, Shelf, SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W,
+    CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H,
+    SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::audio::Sfx;
@@ -30,6 +30,7 @@ use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
 use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
 use crate::persist::{self, Snapshot};
+use crate::update::{update_jobs, UpdateJob, UpdateJobs, UpdateState};
 use crate::video_mode::{self, VideoMode};
 use crate::wifi::{wifi_jobs, WifiJob, WifiJobs, WifiState};
 
@@ -67,6 +68,8 @@ pub const LINK_LOST_MS: Millis = 2000;
 const PLAY_HOLD_MS: Millis = 500;
 
 const SHUTDOWN_SHOW_MS: Millis = 250;
+/// How long a freshly swapped System has to stay up before it is kept.
+const UPDATE_CONFIRM_MS: Millis = 15_000;
 
 const POWER_MENU_PITCH: f32 = 44.0;
 const POWER_MENU_BAR_INSET: f32 = 4.0;
@@ -327,8 +330,7 @@ pub struct App {
     undo_face: Option<TexId>,
     clock_faces: Option<(TexId, TexId)>,
     quick_menu_faces: Option<QuickMenuFaces>,
-    quick_clock_faces: Option<[(TexId, u32, u32); 2]>,
-    quick_device_faces: Option<[(TexId, u32, u32); 2]>,
+    quick_live_faces: LiveFaces,
     sticker_face: Option<TexId>,
     wallpaper: Option<TexId>,
     battery_percent: slot_ui::Printed,
@@ -365,6 +367,8 @@ pub struct App {
     bt_setup_face: Option<TexId>,
     wifi: Box<dyn WifiJobs>,
     wifi_setup_face: Option<TexId>,
+    update: Box<dyn UpdateJobs>,
+    update_confirm_at: Option<Millis>,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -406,6 +410,8 @@ impl App {
             bt_setup_face: None,
             wifi: wifi_jobs(),
             wifi_setup_face: None,
+            update: update_jobs(),
+            update_confirm_at: None,
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -465,8 +471,7 @@ impl App {
             undo_face: None,
             clock_faces: None,
             quick_menu_faces: None,
-            quick_clock_faces: None,
-            quick_device_faces: None,
+            quick_live_faces: [None; QuickRow::ALL.len()],
             sticker_face: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
@@ -520,6 +525,7 @@ impl App {
         if app.state.wifi {
             app.wifi.ask(WifiJob::On);
         }
+        app.update_confirm_at = Some(app.now() + UPDATE_CONFIRM_MS);
         if app.state.clock_set {
             app.start();
         } else {
@@ -708,7 +714,94 @@ impl App {
             | QuickRow::Bluetooth
             | QuickRow::BtChoose
             | QuickRow::Wifi
-            | QuickRow::WifiChoose => None,
+            | QuickRow::WifiChoose
+            | QuickRow::Update
+            | QuickRow::SlotUpdate
+            | QuickRow::BaseOsUpdate => None,
+        }
+    }
+
+    /// The text a live row shows right now.
+    pub fn quick_live_text(&self, row: QuickRow) -> Option<String> {
+        match row {
+            QuickRow::DateTime => Some(slot_ui::date_time_text(self.wall_secs())),
+            QuickRow::SlotUpdate => Some(self.update_text(UpdateJob::Slot)),
+            QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
+            QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
+            _ => None,
+        }
+    }
+
+    fn update_text(&self, which: UpdateJob) -> String {
+        if self.wifi.state() != WifiState::Online {
+            return "Turn on Wi-Fi".into();
+        }
+        match self.update.state() {
+            UpdateState::Idle => "Check".into(),
+            UpdateState::Checking => "Checking...".into(),
+            UpdateState::Offline => "No Connection".into(),
+            UpdateState::Checked(r) => {
+                let (installed, available) = match which {
+                    UpdateJob::Slot => (r.slot_installed.as_str(), r.slot_available()),
+                    _ => (r.baseos_installed.as_str(), r.baseos_available()),
+                };
+                match available {
+                    Some(v) => format!("Get {v}"),
+                    None if installed.is_empty() || installed == "unknown" => "Up to Date".into(),
+                    None => format!("{installed} Up to Date"),
+                }
+            }
+            UpdateState::Downloading(j) if j == which => "Downloading...".into(),
+            UpdateState::Ready(j) if j == which => "Restart to Install".into(),
+            UpdateState::Failed(j, _) if j == which => "Failed, Retry".into(),
+            UpdateState::Downloading(_) => "Busy".into(),
+            UpdateState::Ready(_) => "Restart First".into(),
+            UpdateState::Failed(..) => "Check".into(),
+        }
+    }
+
+    pub fn set_update_jobs(&mut self, jobs: Box<dyn UpdateJobs>) {
+        self.update = jobs;
+    }
+
+    fn open_update(&mut self) {
+        if self.wifi.state() == WifiState::Online && !self.update.state().busy() {
+            self.update.ask(UpdateJob::Check);
+        }
+    }
+
+    fn press_update(&mut self, which: UpdateJob) {
+        if self.wifi.state() != WifiState::Online {
+            return;
+        }
+        match self.update.state() {
+            UpdateState::Checked(r) => {
+                let available = match which {
+                    UpdateJob::Slot => r.slot_available(),
+                    _ => r.baseos_available(),
+                };
+                if available.is_some() {
+                    self.update.ask(which);
+                }
+            }
+            UpdateState::Ready(j) if j == which => {
+                self.restarting = true;
+                self.act_at = self.now() + SHUTDOWN_SHOW_MS;
+                self.set_led(LedState::Off);
+            }
+            UpdateState::Idle | UpdateState::Offline | UpdateState::Failed(..) => {
+                self.update.ask(UpdateJob::Check)
+            }
+            _ => {}
+        }
+    }
+
+    fn update_timers(&mut self) {
+        if let Some(at) = self.update_confirm_at {
+            if self.now() >= at {
+                self.update_confirm_at = None;
+                self.update.confirm();
+            }
         }
     }
 
@@ -749,12 +842,17 @@ impl App {
         self.quick_menu_faces = Some(faces);
     }
 
-    pub fn set_quick_clock_faces(&mut self, dim: (TexId, u32, u32), lit: (TexId, u32, u32)) {
-        self.quick_clock_faces = Some([dim, lit]);
+    pub fn set_quick_live_faces(
+        &mut self,
+        row: QuickRow,
+        dim: (TexId, u32, u32),
+        lit: (TexId, u32, u32),
+    ) {
+        self.quick_live_faces[row.index()] = Some([dim, lit]);
     }
 
-    pub fn set_quick_device_faces(&mut self, faces: Option<[(TexId, u32, u32); 2]>) {
-        self.quick_device_faces = faces;
+    pub fn clear_quick_live_faces(&mut self, row: QuickRow) {
+        self.quick_live_faces[row.index()] = None;
     }
 
     pub fn set_sticker_face(&mut self, face: TexId) {
@@ -1439,6 +1537,14 @@ impl App {
             QuickRow::BtHeadphones => self.reconnect_headphones(),
             QuickRow::BtChoose => self.open_bt_setup(),
             QuickRow::WifiChoose => self.open_wifi_setup(),
+            QuickRow::SlotUpdate => self.press_update(UpdateJob::Slot),
+            QuickRow::BaseOsUpdate => self.press_update(UpdateJob::BaseOs),
+            QuickRow::Update => {
+                self.open_update();
+                if let Some(row) = row.child_in(self.pure) {
+                    self.phase = Phase::QuickMenu { row };
+                }
+            }
             QuickRow::Screen | QuickRow::Game | QuickRow::Bluetooth | QuickRow::Wifi => {
                 if let Some(row) = row.child_in(self.pure) {
                     self.phase = Phase::QuickMenu { row };
@@ -1714,7 +1820,10 @@ impl App {
             | QuickRow::Bluetooth
             | QuickRow::BtChoose
             | QuickRow::Wifi
-            | QuickRow::WifiChoose => return,
+            | QuickRow::WifiChoose
+            | QuickRow::Update
+            | QuickRow::SlotUpdate
+            | QuickRow::BaseOsUpdate => return,
             QuickRow::BtHeadphones => return self.reconnect_headphones(),
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
         }
@@ -2069,6 +2178,7 @@ impl App {
         self.play_hold();
         self.wifi_setup_timers();
         self.bt_setup_timers();
+        self.update_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);
@@ -2331,8 +2441,7 @@ impl App {
                 row: *row,
                 pure: self.pure,
                 values: QuickRow::ALL.map(|r| self.quick_value(r)),
-                clock: self.quick_clock_faces,
-                device: self.quick_device_faces,
+                live: &self.quick_live_faces,
                 faces: self.quick_menu_faces.as_ref(),
             }
             .draw(out),
@@ -3821,6 +3930,16 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
         stamp = format_stamp(secs);
     }
     stamp
+}
+
+const DEVICE_NAME_MAX: usize = 18;
+
+// The headphones' name sits where a value would; long ones are cut.
+fn device_label(name: &str) -> String {
+    match name.char_indices().nth(DEVICE_NAME_MAX) {
+        Some((cut, _)) => format!("{}...", name[..cut].trim_end()),
+        None => name.to_string(),
+    }
 }
 
 fn centred_top(rows: usize) -> f32 {

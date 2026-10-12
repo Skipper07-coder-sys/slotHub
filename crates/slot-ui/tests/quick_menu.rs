@@ -82,8 +82,9 @@ fn the_rows_run_in_the_order_the_user_chose() {
         [
             "Screen",
             "Gameplay",
-            "Bluetooth",
             "Wi-Fi",
+            "Bluetooth",
+            "Update",
             "Date & Time",
             "About"
         ]
@@ -124,19 +125,24 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::BtHeadphones,
             QuickRow::BtChoose,
             QuickRow::Wifi,
-            QuickRow::WifiChoose
+            QuickRow::WifiChoose,
+            QuickRow::Update,
+            QuickRow::SlotUpdate,
+            QuickRow::BaseOsUpdate
         ]
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
         ["Wi-Fi", "Network", "Choose Network"]
     );
+    assert_eq!(QuickRow::UPDATE.map(QuickRow::label), ["slot", "BaseOS"]);
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
         &QuickRow::GAME[..],
         &QuickRow::BLUETOOTH[..],
         &QuickRow::WIFI[..],
+        &QuickRow::UPDATE[..],
     ] {
         for &row in page {
             assert_eq!(row.page(), page, "{row:?}");

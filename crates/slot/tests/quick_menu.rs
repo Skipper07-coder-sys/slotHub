@@ -120,6 +120,7 @@ fn up_and_down_move_the_bar_and_wrap_at_the_ends() {
         QuickRow::Game,
         QuickRow::Bluetooth,
         QuickRow::Wifi,
+        QuickRow::Update,
         QuickRow::DateTime,
         QuickRow::About,
         QuickRow::Screen,
@@ -461,7 +462,7 @@ fn fake_faces(a: &mut App) {
         carets: [(id(300), 10, 40), (id(301), 10, 40)],
         legend: [(id(400), 70), (id(401), 110), (id(402), 80), (id(403), 80)],
     });
-    a.set_quick_clock_faces((id(500), 150, 40), (id(501), 150, 40));
+    a.set_quick_live_faces(QuickRow::DateTime, (id(500), 150, 40), (id(501), 150, 40));
 }
 
 fn value(v: QuickValue, lit: bool) -> usize {

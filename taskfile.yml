@@ -72,6 +72,7 @@ tasks:
       - sh card/test-coresave.sh
       - sh card/test-bluetooth.sh
       - sh card/test-wifi.sh
+      - sh card/test-update.sh
 
   core:
     desc: >-

@@ -8,12 +8,12 @@ use slot_power::{Platform, Power};
 use slot_store::format_stamp;
 use slot_ui::{
     arrows_hint_face, badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face,
-    date_time_text, gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face,
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, rebuild_count_face,
-    rebuild_title_face, set_clock_hint_face, socket_face, sticker_face, title_face, toast_face,
-    wallpaper_face, word_face, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces,
-    QuickRow, QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX,
-    HUD_ICON_PX, HUD_INK, LEGEND,
+    gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face, quick_caret_face,
+    quick_label_face, quick_legend_faces, quick_value_face, rebuild_count_face, rebuild_title_face,
+    set_clock_hint_face, socket_face, sticker_face, title_face, toast_face, wallpaper_face,
+    word_face, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow,
+    QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX,
+    HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -54,8 +54,7 @@ pub struct Frontend {
     switcher: Switcher,
     clocks: Clocks,
     about: AboutFace,
-    quick_clock: QuickClock,
-    quick_device: QuickClock,
+    quick_live: Vec<QuickLive>,
     wifi_setup: WifiSetupFace,
     bt_setup: BtSetupFace,
 }
@@ -81,7 +80,7 @@ struct BtSetupFace {
 }
 
 #[derive(Default)]
-struct QuickClock {
+struct QuickLive {
     dim: Option<TexId>,
     lit: Option<TexId>,
     shown: String,
@@ -150,8 +149,10 @@ impl Frontend {
             switcher: Switcher::default(),
             clocks: Clocks::default(),
             about: AboutFace::default(),
-            quick_clock: QuickClock::default(),
-            quick_device: QuickClock::default(),
+            quick_live: QuickRow::LIVE
+                .iter()
+                .map(|_| QuickLive::default())
+                .collect(),
             wifi_setup: WifiSetupFace::default(),
             bt_setup: BtSetupFace::default(),
         }
@@ -369,8 +370,7 @@ impl Frontend {
         self.cart_faces.sync(self.session.app_mut(), compositor);
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
-        sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
-        sync_quick_device(self.session.app_mut(), compositor, &mut self.quick_device);
+        sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
         sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
         sync_bt_setup(self.session.app_mut(), compositor, &mut self.bt_setup);
         sync_core_picker(
@@ -773,61 +773,35 @@ fn sync_bt_setup(app: &mut App, compositor: &mut Compositor, state: &mut BtSetup
     state.shown = Some(setup);
 }
 
-fn sync_quick_clock(app: &mut App, compositor: &mut Compositor, state: &mut QuickClock) {
+fn sync_quick_live(app: &mut App, compositor: &mut Compositor, states: &mut [QuickLive]) {
     if app.quick_menu().is_none() {
         return;
     }
-    let text = date_time_text(app.wall_secs());
-    if text == state.shown {
-        return;
+    for (row, state) in QuickRow::LIVE.iter().zip(states) {
+        let Some(text) = app.quick_live_text(*row) else {
+            if !state.shown.is_empty() {
+                state.shown.clear();
+                app.clear_quick_live_faces(*row);
+            }
+            continue;
+        };
+        if text == state.shown {
+            continue;
+        }
+        let (dim, lit) = (
+            quick_value_face(&text, false),
+            quick_value_face(&text, true),
+        );
+        let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
+        let dim = upload(compositor, &mut state.dim, dim);
+        let lit = upload(compositor, &mut state.lit, lit);
+        app.set_quick_live_faces(
+            *row,
+            (dim, dim_size.0, dim_size.1),
+            (lit, lit_size.0, lit_size.1),
+        );
+        state.shown = text;
     }
-    let (dim, lit) = (
-        quick_value_face(&text, false),
-        quick_value_face(&text, true),
-    );
-    let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
-    let dim = upload(compositor, &mut state.dim, dim);
-    let lit = upload(compositor, &mut state.lit, lit);
-    app.set_quick_clock_faces((dim, dim_size.0, dim_size.1), (lit, lit_size.0, lit_size.1));
-    state.shown = text;
-}
-
-const DEVICE_NAME_MAX: usize = 18;
-
-fn device_label(name: &str) -> String {
-    match name.char_indices().nth(DEVICE_NAME_MAX) {
-        Some((cut, _)) => format!("{}...", name[..cut].trim_end()),
-        None => name.to_string(),
-    }
-}
-
-fn sync_quick_device(app: &mut App, compositor: &mut Compositor, state: &mut QuickClock) {
-    if app.quick_menu().is_none() {
-        return;
-    }
-    let text = app
-        .bt_device_name()
-        .map(|n| device_label(&n))
-        .unwrap_or_default();
-    if text == state.shown {
-        return;
-    }
-    state.shown = text.clone();
-    if text.is_empty() {
-        app.set_quick_device_faces(None);
-        return;
-    }
-    let (dim, lit) = (
-        quick_value_face(&text, false),
-        quick_value_face(&text, true),
-    );
-    let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
-    let dim = upload(compositor, &mut state.dim, dim);
-    let lit = upload(compositor, &mut state.lit, lit);
-    app.set_quick_device_faces(Some([
-        (dim, dim_size.0, dim_size.1),
-        (lit, lit_size.0, lit_size.1),
-    ]));
 }
 
 fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace) {
