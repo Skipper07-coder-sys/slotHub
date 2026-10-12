@@ -26,6 +26,7 @@ use crate::art::{art_jobs, ArtJobs};
 use crate::audio::Sfx;
 use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
+use crate::diag::{diag_jobs, DiagJob, DiagJobs, DiagState, Radios};
 use crate::drive::{drive_jobs, library_marks, DriveJobs, DriveState};
 use crate::link_kind::{link_carried, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
@@ -382,6 +383,11 @@ pub struct App {
     installed: Installed,
     drive: Box<dyn DriveJobs>,
     art: Box<dyn ArtJobs>,
+    diag: Box<dyn DiagJobs>,
+    /// The run before crashed: this one starts on the shelf, not in a game.
+    crashed: bool,
+    /// The self-test after an update is under way; problems end in a toast.
+    selftest_watch: bool,
     /// A fetch is under way; its end rescans the shelves for the new labels.
     art_running: bool,
     /// While the drive is on: what the library looked like at the last look,
@@ -437,6 +443,9 @@ impl App {
             installed: Installed::default(),
             drive: drive_jobs(),
             art: art_jobs(),
+            diag: diag_jobs(),
+            crashed: false,
+            selftest_watch: false,
             art_running: false,
             drive_marks: None,
             drive_look_at: 0,
@@ -562,16 +571,30 @@ impl App {
         }
         app.update_confirm_at = Some(app.now() + UPDATE_CONFIRM_MS);
         app.installed = Installed::read(root);
+        // The run before crashed: report.sh has saved a report for it. The
+        // game it was playing stays on the shelf, so it cannot crash again
+        // straight away.
+        app.crashed = crate::diag::take_crash_note(root);
+        if app.crashed {
+            eprintln!("slot: the run before crashed, its report is in Reports");
+            app.state.cart = None;
+            app.state.cart_platform = None;
+        }
         if app.state.clock_set {
             app.start();
         } else {
             app.phase = clock_screen(system_secs(), 0, false);
         }
+        if app.crashed {
+            app.hud.toast(Toast::CrashCaught, app.now());
+        }
         app
     }
 
     fn start(&mut self) {
-        let seated = if self.single_cart() {
+        let seated = if self.crashed {
+            None
+        } else if self.single_cart() {
             Some((self.shelf_at, 0))
         } else {
             let stem = self.state.cart.clone();
@@ -754,7 +777,9 @@ impl App {
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
             | QuickRow::WifiDrive
-            | QuickRow::WifiArt => None,
+            | QuickRow::WifiArt
+            | QuickRow::SelfTest
+            | QuickRow::BugReport => None,
         }
     }
 
@@ -769,6 +794,8 @@ impl App {
             QuickRow::Bluetooth => Some(self.bt_row_text()),
             QuickRow::WifiDrive => Some(self.drive_text()),
             QuickRow::WifiArt => Some(self.art_text()),
+            QuickRow::SelfTest => Some(self.diag.state().test_text()),
+            QuickRow::BugReport => Some(self.diag.state().report_text()),
             _ => None,
         }
     }
@@ -1028,7 +1055,35 @@ impl App {
             if self.now() >= at {
                 self.update_confirm_at = None;
                 self.update.confirm();
+                self.diag.run(DiagJob::SelfTestOnce, self.radios_up());
+                self.selftest_watch = true;
             }
+        }
+        if self.selftest_watch && !self.diag.state().running() {
+            self.selftest_watch = false;
+            if matches!(self.diag.state(), DiagState::Tested(n) if n > 0) {
+                self.hud.toast(Toast::SelfTestProblems, self.now());
+            }
+        }
+    }
+
+    /// The radios that are on and done starting, which the self-test checks.
+    fn radios_up(&self) -> Radios {
+        Radios {
+            wifi: self.state.wifi
+                && !matches!(self.wifi.state(), WifiState::Off | WifiState::Connecting),
+            bluetooth: self.state.bluetooth
+                && !matches!(self.bt.state(), BtState::Off | BtState::Starting),
+        }
+    }
+
+    pub fn set_diag_jobs(&mut self, jobs: Box<dyn DiagJobs>) {
+        self.diag = jobs;
+    }
+
+    fn run_diag(&mut self, job: DiagJob) {
+        if !self.diag.state().running() {
+            self.diag.run(job, self.radios_up());
         }
     }
 
@@ -1868,6 +1923,8 @@ impl App {
             QuickRow::WifiNetwork => self.rejoin_wifi(),
             QuickRow::WifiDrive => self.toggle_drive(),
             QuickRow::WifiArt => self.fetch_art(),
+            QuickRow::SelfTest => self.run_diag(DiagJob::SelfTest),
+            QuickRow::BugReport => self.run_diag(DiagJob::BugReport),
         }
     }
 
@@ -2122,7 +2179,9 @@ impl App {
             | QuickRow::Update
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
-            | QuickRow::WifiArt => return,
+            | QuickRow::WifiArt
+            | QuickRow::SelfTest
+            | QuickRow::BugReport => return,
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
             QuickRow::WifiDrive => return self.toggle_drive(),
         }

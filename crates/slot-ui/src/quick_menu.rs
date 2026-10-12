@@ -32,10 +32,12 @@ pub enum QuickRow {
     BaseOsUpdate,
     WifiDrive,
     WifiArt,
+    SelfTest,
+    BugReport,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 26] = [
+    pub const ALL: [QuickRow; 28] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -62,6 +64,8 @@ impl QuickRow {
         QuickRow::BaseOsUpdate,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
+        QuickRow::SelfTest,
+        QuickRow::BugReport,
     ];
 
     pub const MAIN: [QuickRow; 7] = [
@@ -93,10 +97,15 @@ impl QuickRow {
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
-    pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
+    pub const UPDATE: [QuickRow; 4] = [
+        QuickRow::SlotUpdate,
+        QuickRow::BaseOsUpdate,
+        QuickRow::SelfTest,
+        QuickRow::BugReport,
+    ];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 9] = [
+    pub const LIVE: [QuickRow; 11] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
@@ -106,6 +115,8 @@ impl QuickRow {
         QuickRow::WifiNetwork,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
+        QuickRow::SelfTest,
+        QuickRow::BugReport,
     ];
 
     pub const WIFI: [QuickRow; 5] = [
@@ -136,7 +147,10 @@ impl QuickRow {
             | QuickRow::WifiChoose
             | QuickRow::WifiDrive
             | QuickRow::WifiArt => &QuickRow::WIFI,
-            QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
+            QuickRow::SlotUpdate
+            | QuickRow::BaseOsUpdate
+            | QuickRow::SelfTest
+            | QuickRow::BugReport => &QuickRow::UPDATE,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -220,6 +234,8 @@ impl QuickRow {
             QuickRow::Update => "Update",
             QuickRow::SlotUpdate => "slot",
             QuickRow::BaseOsUpdate => "BaseOS",
+            QuickRow::SelfTest => "Self-Test",
+            QuickRow::BugReport => "Bug Report",
         }
     }
 
@@ -238,6 +254,8 @@ impl QuickRow {
                 | QuickRow::SlotUpdate
                 | QuickRow::BaseOsUpdate
                 | QuickRow::WifiArt
+                | QuickRow::SelfTest
+                | QuickRow::BugReport
         )
     }
 

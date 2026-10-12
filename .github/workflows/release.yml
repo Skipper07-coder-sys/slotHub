@@ -88,6 +88,17 @@ jobs:
         # A test build is named by its commit, short enough for the Update page.
         run: echo "${RELEASE:-dev-$(echo "$GITHUB_SHA" | cut -c1-7)}" > "$OUT/System/release"
 
+      - name: List every shipped file with its checksum
+        # The handheld's self-test (report.sh) checks System against this
+        # after each update. Licences are left out: they do not run.
+        run: |
+          set -eu
+          cd "$OUT/System"
+          find . -type f ! -path './licenses/*' ! -name MANIFEST.sha256 | sed 's|^\./||' | sort \
+            | while read -r f; do sha256sum "$f"; done > MANIFEST.sha256
+          test -s MANIFEST.sha256
+          sha256sum -c --quiet MANIFEST.sha256
+
       - name: Check what is about to ship
         run: |
           set -eu

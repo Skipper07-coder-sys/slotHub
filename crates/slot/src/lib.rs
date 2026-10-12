@@ -11,6 +11,7 @@ pub mod cart_faces;
 pub mod core;
 pub mod core_picker;
 pub mod crash;
+pub mod diag;
 pub mod drc;
 pub mod drive;
 pub mod emu;
