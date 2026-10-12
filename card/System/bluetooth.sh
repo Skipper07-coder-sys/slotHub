@@ -20,6 +20,7 @@ DBUS_SEND="${AGS_DBUS_SEND:-dbus-send}"
 SYSTEMCTL="${AGS_SYSTEMCTL:-systemctl}"
 SCAN_S="${AGS_BT_SCAN_S:-12}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
+STATUS_SEEN="${AGS_BT_STATUS_SEEN:-/tmp/slot-bt-status}"
 
 log() {
 	echo "$(date '+%H:%M:%S') $*" >> "$LOG" 2>/dev/null
@@ -90,10 +91,21 @@ up() {
 	log "bluetooth up"
 }
 
+addresses() {
+	sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p'
+}
+
+# Newer bluetoothctl dropped paired-devices and prints an error instead, so
+# judge each answer by the addresses in it, never by whether it said anything.
 paired() {
-	list="$(btctl 5 paired-devices)"
-	[ -n "$list" ] || list="$(btctl 5 devices Paired)"
-	printf '%s\n' "$list" | sed -n 's/^Device \([0-9A-Fa-f:]\{17\}\).*/\1/p'
+	list="$(btctl 5 paired-devices | addresses)"
+	[ -n "$list" ] || list="$(btctl 5 devices Paired | addresses)"
+	if [ -z "$list" ]; then
+		for mac in $(btctl 5 devices | addresses); do
+			btctl 5 info "$mac" | grep -q "Paired: yes" && list="$list $mac"
+		done
+	fi
+	printf '%s\n' $list
 }
 
 connected() {
@@ -111,26 +123,35 @@ name_of() {
 	printf '%s\n' "${n% - Find My}"
 }
 
+have_dbus() {
+	command -v "$DBUS_SEND" >/dev/null 2>&1
+}
+
 # A link is not audio. BlueZ holds a media transport object
-# (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/sepN/fdN on this BlueZ) exactly while an A2DP stream is
-# configured, whatever BlueALSA version sits on top; this BlueALSA's
-# bluealsa-aplay has no -L to ask it instead.
+# (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/sepN/fdN on this BlueZ) exactly while
+# an A2DP stream is configured, whatever BlueALSA version sits on top; this
+# BlueALSA's bluealsa-aplay has no -L to ask it instead. Prints the address of
+# every device with one.
+transports() {
+	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
+		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
+		sed -n 's/.*\/dev_\([0-9A-Fa-f_]\{17\}\)\(\/sep[0-9]*\)\{0,1\}\/fd[0-9].*/\1/p' |
+		tr '_a-f' ':A-F' | sort -u
+}
+
 a2dp_ready() {
-	if ! command -v "$DBUS_SEND" >/dev/null 2>&1; then
+	if ! have_dbus; then
 		# No way to see the stream: count the link, and let connect() ask anyway.
 		connected "$1"
 		return
 	fi
-	dev="dev_$(printf '%s' "$1" | tr ':' '_')"
-	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
-		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
-		grep -q -i -E "$dev(/sep[0-9]+)?/fd[0-9]"
+	transports | grep -q -i -x "$1"
 }
 
 # Pairing leaves AirPods linked with no A2DP: always ask for the profiles
 # explicitly unless a stream already exists. Never disconnect here.
 connect() {
-	command -v "$DBUS_SEND" >/dev/null 2>&1 && a2dp_ready "$1" && return 0
+	have_dbus && a2dp_ready "$1" && return 0
 	btctl 15 connect "$1" >> "$LOG"
 	wait_for "a2dp_ready $1" 8 && return 0
 	log "$1: no A2DP stream yet, asking again"
@@ -151,14 +172,29 @@ reconnect() {
 	return 0
 }
 
+# The transport itself says where audio can go, so status does not depend on
+# BlueZ still listing the device as paired. Changes are logged, not every poll.
 status() {
-	for mac in $(paired); do
-		if audio "$mac" && a2dp_ready "$mac"; then
-			echo "$mac $(name_of "$mac")"
-			return 0
-		fi
+	if have_dbus; then
+		macs="$(transports)"
+	else
+		macs=""
+		for mac in $(paired); do
+			audio "$mac" && connected "$mac" && macs="$macs $mac"
+		done
+	fi
+	line=""
+	for mac in $macs; do
+		line="$mac $(name_of "$mac")"
+		break
 	done
-	return 1
+	last="$(cat "$STATUS_SEEN" 2>/dev/null)"
+	if [ "$line" != "$last" ]; then
+		log "status: ${line:-no headphones playing}"
+		printf '%s' "$line" > "$STATUS_SEEN" 2>/dev/null
+	fi
+	[ -n "$line" ] || return 1
+	echo "$line"
 }
 
 # Print "rank rssi mac" for each headphone the last scan saw, best first.
@@ -185,6 +221,7 @@ pair() {
 			return 0
 		fi
 	done
+	log "paired before: $(paired | tr '\n' ' ')"
 	# Headphones paired before need a connect, not a new pairing: pairing a
 	# bonded AirPods again hangs and ends in AuthenticationRejected.
 	for mac in $(paired); do

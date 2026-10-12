@@ -20,8 +20,13 @@ reset() {
 	cat > "$TMP/bin/bluetoothctl" <<FAKE
 #!/bin/sh
 echo "\$*" >> "$TMP/btctl.log"
+# BlueZ 5.66 dropped paired-devices; devices Paired replaced it.
+if [ "\$1" = paired-devices ] && [ -n "\${FAKE_NEW_BLUEZ:-}" ]; then
+	echo "Invalid command in menu main: paired-devices"
+	exit 0
+fi
 case "\$1" in
-	"") cat > /dev/null ;;
+	"") cat >> "$TMP/btctl.log" ;;
 	show) echo "Powered: yes" ;;
 	devices|paired-devices)
 		for d in "$TMP"/bt/*; do
@@ -90,7 +95,7 @@ run() {
 	PATH="$TMP/bin:$PATH" \
 		AGS_BT_LOG="$TMP/bt.log" AGS_BT_HCI="$TMP/hci0" AGS_BT_VENDOR="$TMP/vendor.sh" \
 		AGS_BT_VENDOR_LOCK="$TMP/init_bt" AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 \
-		AGS_DBUS_SEND="$TMP/bin/dbus-send" \
+		AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" \
 		sh "$SCRIPT" "$@" > /dev/null 2>&1
 }
 
@@ -123,7 +128,7 @@ reset
 device AA:AA:AA:AA:AA:03 "Alias: Le battonetes 2 - Find My" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
 run on && rc=0 || rc=$?
 grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "on did not reconnect paired headphones"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" sh "$SCRIPT" status 2>/dev/null)" || true
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
 [ "$out" = "AA:AA:AA:AA:AA:03 Le battonetes 2" ] || fail "status printed '$out'"
 
 reset
@@ -134,7 +139,7 @@ grep -q "^connect AA:AA:AA:AA:AA:04" "$TMP/btctl.log" || fail "pair never asked 
 
 reset
 device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" sh "$SCRIPT" status 2>/dev/null)" || true
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
 [ -z "$out" ] || fail "status called linked headphones with no A2DP stream connected: '$out'"
 run on && rc=0 || rc=$?
 grep -q "disconnect" "$TMP/btctl.log" && fail "on disconnected headphones it could not confirm"
@@ -161,6 +166,22 @@ device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-head
 FAKE_REJECT=1 run pair && rc=0 || rc=$?
 [ "$rc" = 1 ] || fail "a rejected pairing exited $rc, not 1"
 grep -q "^remove AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "a rejected pairing did not forget the stale bond"
+
+# On a newer bluetoothctl paired-devices is an error, not a list: bonded
+# headphones must still be found and connected without a new search.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
+FAKE_NEW_BLUEZ=1 run pair && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "pair on a newer bluetoothctl exited $rc"
+grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair on a newer bluetoothctl never connected bonded headphones"
+grep -q "^scan on" "$TMP/btctl.log" && fail "pair on a newer bluetoothctl searched instead of connecting"
+
+# Status follows the A2DP transport alone, whatever BlueZ says about pairing.
+reset
+device AA:AA:AA:AA:AA:03 "Alias: Le Battonetes 2 - Find My" "Icon: audio-headphones" "A2DP: yes"
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" sh "$SCRIPT" status 2>/dev/null)" || true
+[ "$out" = "AA:AA:AA:AA:AA:03 Le Battonetes 2" ] || fail "status missed a live transport: '$out'"
+grep -q "status: AA:AA:AA:AA:AA:03" "$TMP/bt.log" || fail "status did not log what it found"
 
 reset
 : > "$TMP/run/bluetoothd"
