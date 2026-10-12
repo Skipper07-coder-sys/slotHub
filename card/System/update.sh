@@ -233,9 +233,9 @@ LDSO="${AGS_LDSO:-/lib/ld-linux-aarch64.so.1}"
 # splash DIR MESSAGE: the slot in DIR draws MESSAGE over the boot logo; it
 # stays up until slot shows its first frame. Builds from before the splash
 # would start the whole frontend instead, so only a slot that knows the flag
-# is asked.
+# is asked. -F: BusyBox grep without it stops at the binary's first NUL.
 splash() {
-	[ -f "$1/slot" ] && grep -q -- '--splash' "$1/slot" 2>/dev/null || return 0
+	[ -f "$1/slot" ] && grep -qF -- '--splash' "$1/slot" 2>/dev/null || return 0
 	# A splash that hangs must not hold up the start it is announcing.
 	run=""
 	command -v timeout >/dev/null 2>&1 && run="timeout 5"
