@@ -75,11 +75,16 @@ fn wifi_sits_at_the_right_edge_with_bluetooth_then_the_meter_to_its_left() {
 }
 
 #[test]
-fn the_shelf_radios_sit_left_of_the_clock_with_wifi_nearest() {
-    let clock = slot_ui::Printed::new(TexId::from_raw(9), 60);
+fn the_shelf_radios_follow_the_battery_bluetooth_first() {
+    let percent = slot_ui::Printed::new(TexId::from_raw(9), 40);
+    let battery = Some(slot_power::Battery {
+        percent: 68,
+        charge: slot_power::Charge::Discharging,
+    });
     let mut out = Vec::new();
     slot_ui::draw_footer_radios(
-        clock,
+        battery,
+        percent,
         Some((TexId::from_raw(1), 20, 24)),
         Some((TexId::from_raw(2), 20, 24)),
         &mut out,
@@ -92,7 +97,8 @@ fn the_shelf_radios_sit_left_of_the_clock_with_wifi_nearest() {
             })
             .unwrap()
     };
-    let (wifi, bt) = (x(2), x(1));
-    assert!(wifi.0 + wifi.1 <= OUT_W as f32 - 60.0);
-    assert!(bt.0 + bt.1 <= wifi.0);
+    let (bt, wifi) = (x(1), x(2));
+    assert!(bt.0 >= slot_ui::gauge_right(24.0, percent));
+    assert!(wifi.0 >= bt.0 + bt.1);
+    assert!(wifi.0 + wifi.1 < OUT_W as f32 / 2.0);
 }

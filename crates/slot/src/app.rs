@@ -2575,7 +2575,7 @@ impl App {
                     out,
                 );
                 let [bt, wifi] = self.status_faces_now();
-                slot_ui::draw_footer_radios(self.shelf_clock, bt, wifi, out);
+                slot_ui::draw_footer_radios(self.battery, self.battery_percent, bt, wifi, out);
             }
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);
