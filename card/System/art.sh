@@ -161,26 +161,44 @@ sgdb_logo() {
 	term="$(printf '%s' "$1" | sed -e 's/([^)]*)//g' -e 's/\[[^]]*\]//g' \
 		-e 's/[ _-][vV][0-9][0-9.]*.*$//' -e 's/  */ /g' -e 's/^ //' -e 's/ $//')"
 	[ -n "$term" ] || return 1
-	reply="$RUN/sgdb.json"
-	sgdb_get "$key" "$SGDB/search/autocomplete/$(urlencode "$term")" "$reply" || return 1
-	# The first hit whose name holds the term (or the other way round):
-	# search ranks loosely, and a wrong game's logo is worse than none.
-	want="$(plain "$term")"
-	id="$(tr ',{}[]' '\n\n\n\n\n' < "$reply" | sed -e 's/\\u00[cCeE]9/e/g' -e 's/\\u[0-9a-fA-F]\{4\}//g' |
-		awk -v want="$want" '
-			/^"id": *[0-9]/ { id = $0; sub(/^"id": */, "", id) }
-			/^"name": *"/ {
-				n = $0; sub(/^"name": *"/, "", n); n = tolower(n); gsub(/[^a-z0-9]/, "", n)
-				if (id != "" && n != "" && (index(n, want) || index(want, n))) { print id; exit }
-				id = ""
-			}')"
+	# "extended" alone finds hotels: a hack whose header title says POKEMON
+	# is searched as one, so the hit must say Pokemon too.
+	if [ -n "$3" ] && dd if="$3" bs=1 skip=160 count=7 2>/dev/null | grep -q '^POKEMON'; then
+		case "$(plain "$term")" in
+		pokemon*) ;;
+		*) term="Pokemon $term" ;;
+		esac
+	fi
+	id="$(sgdb_find "$key" "$term")"
 	[ -n "$id" ] || return 1
+	reply="$RUN/sgdb.json"
 	sgdb_get "$key" "$SGDB/logos/game/$id?mimes=image/png" "$reply" || return 1
 	url="$(grep -o '"url": *"[^"]*"' "$reply" | head -n 1 | sed -e 's/^"url": *"//' -e 's/"$//' -e 's#\\/#/#g')"
 	[ -n "$url" ] || return 1
 	get "$url" "$2.part" && mv -f "$2.part" "$2" && log "$1: SteamGridDB logo for $term" && return 0
 	rm -f "$2.part"
 	return 1
+}
+
+# The SteamGridDB id of the first search hit whose name has every word of
+# the term (or whose name is all in the term): search ranks loosely, and a
+# wrong game's logo is worse than none.
+sgdb_find() {
+	reply="$RUN/sgdb.json"
+	sgdb_get "$1" "$SGDB/search/autocomplete/$(urlencode "$2")" "$reply" || return 1
+	words="$(printf '%s' "$2" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9' ' ')"
+	tr ',{}[]' '\n\n\n\n\n' < "$reply" | sed -e 's/\\u00[cCeE]9/e/g' -e 's/\\u[0-9a-fA-F]\{4\}//g' |
+		awk -v words="$words" '
+			BEGIN { n = split(words, w, " "); all = ""; for (i = 1; i <= n; i++) all = all w[i] }
+			/^"id": *[0-9]/ { id = $0; sub(/^"id": */, "", id) }
+			/^"name": *"/ {
+				name = $0; sub(/^"name": *"/, "", name); name = tolower(name); gsub(/[^a-z0-9]/, "", name)
+				ok = id != "" && name != "" && n > 0
+				for (i = 1; ok && i <= n; i++) if (!index(name, w[i])) ok = 0
+				if (id != "" && name != "" && !ok && index(all, name)) ok = 1
+				if (ok) { print id; exit }
+				id = ""
+			}'
 }
 
 # A logo by name, a fan-made logo by name, then by game code, then the same
@@ -191,7 +209,7 @@ art_for() {
 	looked=""
 	for KIND in $KINDS; do
 		fetch_one "$1" "$2" "$4" && return 0
-		[ "$KIND" = Named_Logos ] && sgdb_logo "$2" "$4" && return 0
+		[ "$KIND" = Named_Logos ] && sgdb_logo "$2" "$4" "$3" && return 0
 		if [ -z "$looked" ] && [ "$1" = GBA ]; then
 			looked=1
 			code="$(game_code "$3")" && basegame="$(name_for_code "$code")"
