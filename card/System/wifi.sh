@@ -29,7 +29,8 @@ JOIN_S="${AGS_WIFI_JOIN_S:-20}"
 ADDR_S="${AGS_WIFI_ADDR_S:-15}"
 SCAN_S="${AGS_WIFI_SCAN_S:-3}"
 IFACE_S="${AGS_WIFI_IFACE_S:-25}"
-SCAN_TRIES="${AGS_WIFI_SCAN_TRIES:-4}"
+SCAN_TRIES="${AGS_WIFI_SCAN_TRIES:-3}"
+SCAN_WAIT_S="${AGS_WIFI_SCAN_WAIT_S:-12}"
 
 SUP_CONF="$RUN/slot-wifi.conf"
 DHCP_PID="$RUN/slot-wifi-udhcpc.pid"
@@ -276,18 +277,23 @@ wifi_scan() {
 	if ! $WPA_CLI -p "$CTRL_DIR" -i wlan0 ping 2>/dev/null | grep -q PONG; then
 		log "scan: the supplicant is not answering"
 	fi
+	# A scan on this radio takes four to five seconds, so ask once and read the
+	# list every second until it fills, asking again halfway if it stays empty.
+	asked="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan 2>&1 | tr '\n' ' ')"
 	tries=0
 	results=
 	while :; do
-		asked="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan 2>&1 | tr '\n' ' ')"
-		sleep "$SCAN_S"
+		sleep 1
+		tries=$((tries + 1))
 		raw="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>&1)"
 		results="$(printf '%s\n' "$raw" | tail -n +2)"
-		tries=$((tries + 1))
-		[ -n "$results" ] || [ "$tries" -ge "$SCAN_TRIES" ] && break
-		log "scan: pass $tries heard nothing: scan said '$asked', results '$(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')'"
+		[ -n "$results" ] || [ "$tries" -ge "$SCAN_WAIT_S" ] && break
+		if [ "$tries" -eq $((SCAN_WAIT_S / 2)) ]; then
+			log "scan: nothing after ${tries}s: scan said '$asked', results '$(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')'"
+			asked="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan 2>&1 | tr '\n' ' ')"
+		fi
 	done
-	log "scan: $(printf '%s\n' "$results" | grep -c .) results on pass $tries"
+	log "scan: $(printf '%s\n' "$results" | grep -c .) results after ${tries}s"
 	printf '%s\n' "$results" \
 		| awk -F '\t' 'NF >= 5 && $5 != "" && $3 ~ /^-?[0-9]+$/ {
 			locked = ($4 ~ /WPA|WEP|RSN|SAE/) ? 1 : 0

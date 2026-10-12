@@ -153,7 +153,8 @@ FAKE_PONG=1 AGS_WIFI_SCAN_S=0 run scan >/dev/null
 [ -e "$TMP/sup.log" ] && fail "scan started a second supplicant beside a running one"
 grep -q terminate "$TMP/cli.log" && fail "scan stopped the supplicant Wi-Fi is using"
 
-# A radio that hears nothing on its first pass is asked again.
+# The list fills a few seconds after the scan is asked for, as it does on the
+# handheld (4 to 5 s); the script keeps reading without asking again.
 reset
 scan_fake
 cat > "$TMP/bin/wpa_cli" <<FAKE
@@ -170,16 +171,16 @@ exit 0
 FAKE
 chmod 755 "$TMP/bin/wpa_cli"
 out="$(AGS_WIFI_SCAN_S=0 run scan)" || fail "retried scan exited $?"
-[ "$out" = "$(printf -- '-71\t1\tHome')" ] || fail "a scan that heard nothing at first was not asked again"
-[ "$(grep -c '^scan$\|-i wlan0 scan$' "$TMP/cli.log")" = 3 ] || fail "scan asked $(grep -c 'wlan0 scan$' "$TMP/cli.log") times, want 3"
+[ "$out" = "$(printf -- '-71\t1\tHome')" ] || fail "a scan whose list filled late was read too early"
+[ "$(grep -c 'wlan0 scan$' "$TMP/cli.log")" = 1 ] || fail "a scan that was still running was asked for $(grep -c 'wlan0 scan$' "$TMP/cli.log") times, want 1"
 
 reset
 scan_fake
 sed -i 's/^\*scan_results\*)/*scan_results*) : ;;\n*never*)/' "$TMP/bin/wpa_cli"
-out="$(AGS_WIFI_SCAN_S=0 AGS_WIFI_SCAN_TRIES=2 run scan)" || fail "empty scan exited $?"
+out="$(AGS_WIFI_SCAN_WAIT_S=4 run scan)" || fail "empty scan exited $?"
 [ -z "$out" ] || fail "an empty scan printed something"
-[ "$(grep -c 'wlan0 scan$' "$TMP/cli.log")" = 2 ] || fail "an empty scan gave up after $(grep -c 'wlan0 scan$' "$TMP/cli.log") tries, want 2"
-grep -q "scan: 0 results on pass 2" "$TMP/slot-wifi.log" || fail "an empty scan was not logged"
+[ "$(grep -c 'wlan0 scan$' "$TMP/cli.log")" = 2 ] || fail "an empty scan was asked for $(grep -c 'wlan0 scan$' "$TMP/cli.log") times, want 2 (once more halfway)"
+grep -q "scan: 0 results after 4s" "$TMP/slot-wifi.log" || fail "an empty scan was not logged"
 
 # The radio can come up a few seconds after slot does; a scan waits for it.
 reset
