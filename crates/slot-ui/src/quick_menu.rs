@@ -23,7 +23,6 @@ pub enum QuickRow {
     Bluetooth,
     BtPower,
     BtHeadphones,
-    BtChoose,
     Wifi,
     WifiPower,
     WifiNetwork,
@@ -34,7 +33,7 @@ pub enum QuickRow {
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 25] = [
+    pub const ALL: [QuickRow; 24] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -52,7 +51,6 @@ impl QuickRow {
         QuickRow::Bluetooth,
         QuickRow::BtPower,
         QuickRow::BtHeadphones,
-        QuickRow::BtChoose,
         QuickRow::Wifi,
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
@@ -90,11 +88,7 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
-    pub const BLUETOOTH: [QuickRow; 3] = [
-        QuickRow::BtPower,
-        QuickRow::BtHeadphones,
-        QuickRow::BtChoose,
-    ];
+    pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
     pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
 
     /// Rows whose value is text the app sets as it changes.
@@ -125,7 +119,7 @@ impl QuickRow {
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
-            QuickRow::BtPower | QuickRow::BtHeadphones | QuickRow::BtChoose => &QuickRow::BLUETOOTH,
+            QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
             QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
             QuickRow::FastForward
@@ -203,7 +197,6 @@ impl QuickRow {
             QuickRow::GbPalettes => "GB Palettes",
             QuickRow::Bluetooth | QuickRow::BtPower => "Bluetooth",
             QuickRow::BtHeadphones => "Headphones",
-            QuickRow::BtChoose => "Choose Headphones",
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
             QuickRow::WifiChoose => "Choose Network",
@@ -221,7 +214,7 @@ impl QuickRow {
                 | QuickRow::Screen
                 | QuickRow::Game
                 | QuickRow::Bluetooth
-                | QuickRow::BtChoose
+                | QuickRow::BtHeadphones
                 | QuickRow::Wifi
                 | QuickRow::WifiChoose
                 | QuickRow::Update
@@ -429,7 +422,7 @@ pub fn quick_legend_faces() -> [UndoFace; 4] {
         hint_face("B", "Back"),
         arrows_hint_face("Change"),
         hint_face("A", "Open"),
-        hint_face("A", "Connect"),
+        hint_face("A", "Choose"),
     ]
 }
 

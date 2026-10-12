@@ -111,7 +111,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::BLUETOOTH.map(QuickRow::label),
-        ["Bluetooth", "Headphones", "Choose Headphones"]
+        ["Bluetooth", "Headphones"]
     );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
     assert_eq!(
@@ -123,7 +123,6 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::Game,
             QuickRow::Bluetooth,
             QuickRow::BtHeadphones,
-            QuickRow::BtChoose,
             QuickRow::Wifi,
             QuickRow::WifiChoose,
             QuickRow::Update,

@@ -712,7 +712,6 @@ impl App {
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Bluetooth
-            | QuickRow::BtChoose
             | QuickRow::Wifi
             | QuickRow::WifiChoose
             | QuickRow::Update
@@ -1534,8 +1533,7 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
-            QuickRow::BtHeadphones => self.reconnect_headphones(),
-            QuickRow::BtChoose => self.open_bt_setup(),
+            QuickRow::BtHeadphones => self.open_bt_setup(),
             QuickRow::WifiChoose => self.open_wifi_setup(),
             QuickRow::SlotUpdate => self.press_update(UpdateJob::Slot),
             QuickRow::BaseOsUpdate => self.press_update(UpdateJob::BaseOs),
@@ -1653,19 +1651,8 @@ impl App {
         }
     }
 
-    // A on Headphones asks the radio to come up and reconnect the headphones
-    // remembered on the card; a new pair is chosen from the list instead.
-    fn reconnect_headphones(&mut self) {
-        if self.bt.state().busy() || self.bt_connected {
-            return;
-        }
-        if !self.state.bluetooth {
-            self.state.bluetooth = true;
-            self.persist();
-        }
-        self.bt.ask(BtJob::On);
-    }
-
+    // A on Headphones opens the list; the pair chosen last reconnects by
+    // itself whenever the radio comes on (bluetooth.sh on).
     fn open_bt_setup(&mut self) {
         if !self.state.bluetooth {
             self.state.bluetooth = true;
@@ -1701,7 +1688,7 @@ impl App {
             Action::GbaDown(Btn::Start) => SetupKey::Start,
             Action::QuickMenu => {
                 self.phase = Phase::QuickMenu {
-                    row: QuickRow::BtChoose,
+                    row: QuickRow::BtHeadphones,
                 };
                 return;
             }
@@ -1715,7 +1702,7 @@ impl App {
             BtOutcome::Rescan => self.open_bt_setup(),
             BtOutcome::Back => {
                 self.phase = Phase::QuickMenu {
-                    row: QuickRow::BtChoose,
+                    row: QuickRow::BtHeadphones,
                 }
             }
             BtOutcome::Connect { mac, name } => {
@@ -1818,13 +1805,12 @@ impl App {
             | QuickRow::Screen
             | QuickRow::Game
             | QuickRow::Bluetooth
-            | QuickRow::BtChoose
+            | QuickRow::BtHeadphones
             | QuickRow::Wifi
             | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate => return,
-            QuickRow::BtHeadphones => return self.reconnect_headphones(),
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
         }
         self.persist();

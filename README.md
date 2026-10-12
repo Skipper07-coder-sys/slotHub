@@ -119,13 +119,12 @@ Open the settings with `MENU` and choose Bluetooth.
 
 - **Bluetooth** switches the radio on or off. It stays as you left it across restarts, and
   when it is on slot reconnects the headphones you chose last.
-- **Headphones** shows whether a pair is connected, and its name. Press `A` to reconnect
-  the pair you chose before.
-- **Choose Headphones** searches for about 12 seconds and lists every pair of headphones
-  or speaker it hears, nearest first. Put yours in pairing mode first (for AirPods, hold
-  the case button until the light flashes white), pick them and press `A`. slot pairs,
-  trusts and connects them, and remembers them in `bluetooth.conf` at the root of the card.
-  `X` searches again.
+- **Headphones** shows whether a pair is connected, and its name. Press `A` to search:
+  slot listens for about 12 seconds and lists every pair of headphones or speaker it hears,
+  nearest first. Put yours in pairing mode first (for AirPods, hold the case button until
+  the light flashes white), pick them and press `A`. slot pairs, trusts and connects them,
+  and remembers them in `bluetooth.conf` at the root of the card, so they reconnect by
+  themselves whenever Bluetooth is on. `X` searches again.
 
 While headphones are connected the game's sound goes to them instead of the speaker, and
 slot keeps the stream open even in silence, since this BlueALSA drops it otherwise. The

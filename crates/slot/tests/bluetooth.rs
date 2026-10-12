@@ -98,7 +98,7 @@ fn open_bluetooth(a: &mut App) {
 
 fn choose_headphones(a: &mut App, fake: &Fake) {
     open_bluetooth(a);
-    for _ in 0..QuickRow::BtChoose.position() {
+    for _ in 0..QuickRow::BtHeadphones.position() {
         press(a, Btn::Down);
     }
     press(a, Btn::A);
@@ -177,7 +177,7 @@ fn a_refused_pairing_is_explained_and_a_searches_again() {
     assert_eq!(a.bt_setup(), Some(&BtSetup::Scanning));
     assert_eq!(*fake.scans.lock().unwrap(), 2);
     press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::BtChoose));
+    assert_eq!(a.quick_menu(), Some(QuickRow::BtHeadphones));
 }
 
 #[test]
@@ -194,33 +194,8 @@ fn a_failed_connect_is_explained_and_b_goes_back_to_the_menu() {
         })
     );
     press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::BtChoose));
-    assert_eq!(a.bt_setup(), None);
-}
-
-#[test]
-fn a_on_headphones_reconnects_the_remembered_pair_and_switches_bluetooth_on() {
-    let (d, mut a, fake) = booted();
-    open_bluetooth(&mut a);
-    press(&mut a, Btn::Down);
-    assert_eq!(
-        a.quick_value(QuickRow::BtHeadphones),
-        Some(QuickValue::NotConnected)
-    );
-    press(&mut a, Btn::A);
-    assert!(read_slot_state(d.path()).bluetooth);
-    assert_eq!(*fake.asked.lock().unwrap(), [BtJob::On]);
-    assert_eq!(
-        a.quick_value(QuickRow::BtHeadphones),
-        Some(QuickValue::Starting)
-    );
-    press(&mut a, Btn::A);
-    assert_eq!(
-        *fake.asked.lock().unwrap(),
-        [BtJob::On],
-        "a second press while starting asked again"
-    );
     assert_eq!(a.quick_menu(), Some(QuickRow::BtHeadphones));
+    assert_eq!(a.bt_setup(), None);
 }
 
 #[test]
@@ -250,10 +225,16 @@ fn connected_headphones_take_the_sound_and_show_their_name() {
     press(&mut a, Btn::Down);
     press(&mut a, Btn::A);
     assert_eq!(
+        a.bt_setup(),
+        Some(&BtSetup::Scanning),
+        "A on the Headphones row did not open the list"
+    );
+    assert_eq!(
         *fake.asked.lock().unwrap(),
         [BtJob::On],
-        "A on connected headphones asked the radio for something, which can drop their stream"
+        "opening the list asked the radio for something, which can drop the stream"
     );
+    press(&mut a, Btn::B);
     assert_eq!(
         slot::audio::route::bluetooth_device().as_deref(),
         Some(AIRPODS)
