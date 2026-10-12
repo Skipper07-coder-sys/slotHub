@@ -23,10 +23,13 @@ CTRL_DIR="${AGS_CTRL_DIR:-/var/run/wpa_supplicant}"
 WPA_SUPPLICANT="${AGS_WPA_SUPPLICANT:-wpa_supplicant}"
 WPA_CLI="${AGS_WPA_CLI:-wpa_cli}"
 IP="${AGS_IP:-ip}"
+IW="${AGS_IW:-iw}"
 UDHCPC="${AGS_UDHCPC:-udhcpc}"
 JOIN_S="${AGS_WIFI_JOIN_S:-20}"
 ADDR_S="${AGS_WIFI_ADDR_S:-15}"
-SCAN_S="${AGS_WIFI_SCAN_S:-4}"
+SCAN_S="${AGS_WIFI_SCAN_S:-3}"
+IFACE_S="${AGS_WIFI_IFACE_S:-25}"
+SCAN_TRIES="${AGS_WIFI_SCAN_TRIES:-4}"
 
 SUP_CONF="$RUN/slot-wifi.conf"
 DHCP_PID="$RUN/slot-wifi-udhcpc.pid"
@@ -149,6 +152,17 @@ wait_address() {
 	return 0
 }
 
+# BaseOS brings the radio up in the background after boot, and reloads the
+# driver once on units with a slow radio, so wlan0 can take a while to appear.
+wait_wlan0() {
+	end=$(($(date +%s) + IFACE_S))
+	while [ ! -d "$NET/wlan0" ]; do
+		[ "$(date +%s)" -ge "$end" ] && return 1
+		sleep 0.25 2>/dev/null || sleep 1
+	done
+	return 0
+}
+
 leave() {
 	dhcp_stop
 	supplicant_stop
@@ -163,14 +177,10 @@ wifi_up() {
 		return 3
 	fi
 	write_conf || { log "no usable network in $CONF"; return 3; }
-	w=0
-	while [ ! -d "$NET/wlan0" ] && [ "$w" -lt 40 ]; do
-		sleep 0.25 2>/dev/null || sleep 1
-		w=$((w + 1))
-	done
-	[ -d "$NET/wlan0" ] || { log "no wlan0"; return 1; }
-	rfkill unblock wifi 2>/dev/null || true
+	wait_wlan0 || { log "no wlan0 in ${IFACE_S}s"; return 1; }
+	rfkill unblock all 2>/dev/null || true
 	$IP link set wlan0 up 2>/dev/null || true
+	command -v "$IW" >/dev/null 2>&1 && $IW dev wlan0 set power_save off 2>/dev/null
 	leave
 	/bin/mkdir -p "$CTRL_DIR"
 	if ! $WPA_SUPPLICANT -B -i wlan0 -c "$SUP_CONF" -Dnl80211 >/dev/null 2>&1; then
@@ -213,12 +223,43 @@ wifi_resume() {
 	wifi_up
 }
 
-# Scanning needs a supplicant. Borrow the running one, or start a bare one and
-# stop it again so a scan with Wi-Fi off leaves it off.
+# iw's scan output: one "BSS" block per network with its signal, flags and name.
+iw_scan_lines() {
+	awk '
+	function flush() { if (ssid != "" && sig != "") print sig "\t" lock "\t" ssid }
+	/^BSS / { flush(); sig = ""; ssid = ""; lock = 0 }
+	/^[ \t]*signal:/ { sig = $2; sub(/\..*/, "", sig) }
+	/^[ \t]*SSID:/ { ssid = substr($0, index($0, "SSID:") + 6) }
+	/^[ \t]*capability:.*Privacy/ { lock = 1 }
+	END { flush() }'
+}
+
+# Scan the way muOS does on this chip: iw, asked up to three times two seconds
+# apart, because the radio answers "busy" or hears nothing right after coming
+# up. Without iw, borrow the running supplicant or start a bare one and stop
+# it again so a scan with Wi-Fi off leaves it off.
 wifi_scan() {
-	[ -d "$NET/wlan0" ] || { log "scan: no wlan0"; return 1; }
-	rfkill unblock wifi 2>/dev/null || true
+	wait_wlan0 || { log "scan: no wlan0 in ${IFACE_S}s"; return 1; }
+	rfkill unblock all 2>/dev/null || true
 	$IP link set wlan0 up 2>/dev/null || true
+	log "scan: iw=$(command -v "$IW" 2>/dev/null || echo none) wpa_cli=$(command -v "$WPA_CLI" 2>/dev/null || echo none) wpa_supplicant=$(command -v "$WPA_SUPPLICANT" 2>/dev/null || echo none) wlan0=$(cat "$NET/wlan0/operstate" 2>/dev/null || echo ?)"
+	if command -v "$IW" >/dev/null 2>&1; then
+		$IW dev wlan0 set power_save off 2>/dev/null || true
+		sleep 1
+		tries=0
+		results=
+		while :; do
+			tries=$((tries + 1))
+			raw="$($IW dev wlan0 scan 2>&1)"
+			results="$(printf '%s\n' "$raw" | iw_scan_lines)"
+			[ -n "$results" ] || [ "$tries" -ge "$SCAN_TRIES" ] && break
+			log "scan: pass $tries heard nothing: $(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')"
+			sleep "$SCAN_S"
+		done
+		log "scan: $(printf '%s\n' "$results" | grep -c .) results on pass $tries (iw)"
+		printf '%s\n' "$results" | grep . | sort -t "$(printf '\t')" -k1,1nr | awk -F '\t' '!seen[$3]++'
+		return 0
+	fi
 	bare=0
 	if ! $WPA_CLI -p "$CTRL_DIR" -i wlan0 ping 2>/dev/null | grep -q PONG; then
 		/bin/mkdir -p "$CTRL_DIR"
@@ -232,9 +273,22 @@ wifi_scan() {
 			w=$((w + 1))
 		done
 	fi
-	$WPA_CLI -p "$CTRL_DIR" -i wlan0 scan >/dev/null 2>&1
-	sleep "$SCAN_S"
-	$WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>/dev/null \
+	if ! $WPA_CLI -p "$CTRL_DIR" -i wlan0 ping 2>/dev/null | grep -q PONG; then
+		log "scan: the supplicant is not answering"
+	fi
+	tries=0
+	results=
+	while :; do
+		asked="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan 2>&1 | tr '\n' ' ')"
+		sleep "$SCAN_S"
+		raw="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>&1)"
+		results="$(printf '%s\n' "$raw" | tail -n +2)"
+		tries=$((tries + 1))
+		[ -n "$results" ] || [ "$tries" -ge "$SCAN_TRIES" ] && break
+		log "scan: pass $tries heard nothing: scan said '$asked', results '$(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')'"
+	done
+	log "scan: $(printf '%s\n' "$results" | grep -c .) results on pass $tries"
+	printf '%s\n' "$results" \
 		| awk -F '\t' 'NF >= 5 && $5 != "" && $3 ~ /^-?[0-9]+$/ {
 			locked = ($4 ~ /WPA|WEP|RSN|SAE/) ? 1 : 0
 			print $3 "\t" locked "\t" $5
