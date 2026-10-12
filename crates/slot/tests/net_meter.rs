@@ -9,7 +9,7 @@ use slot::net_meter::{signal_bars, wireless_dbm, NetMeter, NET_POLL_MS};
 use slot::wifi::{WifiJob, WifiJobs, WifiState};
 use slot_input::Action;
 use slot_store::{write_slot_state, SlotState};
-use slot_ui::{StatusIcon, WifiNetwork};
+use slot_ui::{QuickRow, StatusIcon, WifiNetwork};
 use tempfile::TempDir;
 
 const WIRELESS: &str =
@@ -154,4 +154,39 @@ fn the_meter_runs_only_in_the_menu_on_a_connected_wifi() {
     a.apply(Action::QuickMenu);
     assert_eq!(a.quick_menu(), None);
     assert_eq!(a.net_rate(), None, "closed menu, no meter");
+}
+
+#[test]
+fn the_wifi_row_names_the_joined_network() {
+    let (d, mut a) = booted(true, WifiState::Online);
+    let ssid = d.path().join("ssid");
+    fs::write(&ssid, "Home Net\n").unwrap();
+    let gone = d.path().join("gone");
+    a.set_net_meter(NetMeter::at(&gone, &gone, "wlan0").with_ssid_file(&ssid));
+    a.apply(Action::QuickMenu);
+    assert_eq!(
+        a.quick_live_text(QuickRow::Wifi).as_deref(),
+        Some("Connected")
+    );
+    let t = a.now();
+    a.tick_ms(t + 1);
+    assert_eq!(
+        a.quick_live_text(QuickRow::Wifi).as_deref(),
+        Some("Home Net")
+    );
+    assert_eq!(
+        a.quick_live_text(QuickRow::Bluetooth).as_deref(),
+        Some("Off")
+    );
+}
+
+#[test]
+fn the_wifi_row_says_why_it_is_not_online() {
+    let (_d, a) = booted(true, WifiState::NotFound);
+    assert_eq!(
+        a.quick_live_text(QuickRow::Wifi).as_deref(),
+        Some("Not Found")
+    );
+    let (_d, a) = booted(false, WifiState::Off);
+    assert_eq!(a.quick_live_text(QuickRow::Wifi).as_deref(), Some("Off"));
 }

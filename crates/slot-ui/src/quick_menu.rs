@@ -92,11 +92,13 @@ impl QuickRow {
     pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 4] = [
+    pub const LIVE: [QuickRow; 6] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
         QuickRow::BtHeadphones,
+        QuickRow::Wifi,
+        QuickRow::Bluetooth,
     ];
 
     pub const WIFI: [QuickRow; 3] = [

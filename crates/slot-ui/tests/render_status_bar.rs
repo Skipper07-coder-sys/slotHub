@@ -33,13 +33,19 @@ fn render_status_bar() {
     let bt = add(status_icon_face(StatusIcon::BtConnected, true));
     let wifi = add(status_icon_face(StatusIcon::Wifi3, true));
     let rate = add(rate_face(48_300, 2_100));
+    let mut live = [None; QuickRow::ALL.len()];
+    for (row, text) in [
+        (QuickRow::Wifi, "Home Net"),
+        (QuickRow::Bluetooth, "Le Battonetes 2"),
+    ] {
+        live[row.index()] = Some([false, true].map(|lit| add(quick_value_face(text, lit))));
+    }
     let menu_faces = QuickMenuFaces {
         labels,
         values,
         carets,
         legend,
     };
-    let live = [None; QuickRow::ALL.len()];
     let mut values = [None; QuickRow::ALL.len()];
     values[QuickRow::WifiPower.index()] = Some(QuickValue::On);
     let mut list = Vec::new();

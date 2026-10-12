@@ -36,6 +36,8 @@ SUP_CONF="$RUN/slot-wifi.conf"
 DHCP_PID="$RUN/slot-wifi-udhcpc.pid"
 ON="$RUN/slot-wifi.on"
 PAUSED="$RUN/slot-wifi.paused"
+# The joined network's name, for the settings menu's Wi-Fi row.
+SSID="$RUN/slot-wifi.ssid"
 
 log() {
 	echo "$(date '+%H:%M:%S') $*" >> "$LOG" 2>/dev/null
@@ -165,6 +167,7 @@ wait_wlan0() {
 }
 
 leave() {
+	/bin/rm -f "$SSID"
 	dhcp_stop
 	supplicant_stop
 	$IP addr flush dev wlan0 2>/dev/null || true
@@ -198,7 +201,8 @@ wifi_up() {
 		log "joined but no address in ${ADDR_S}s"
 		return 5
 	fi
-	log "online at $(address)"
+	$WPA_CLI -p "$CTRL_DIR" -i wlan0 status 2>/dev/null | sed -n 's/^ssid=//p' > "$SSID" 2>/dev/null
+	log "online at $(address) on $(cat "$SSID" 2>/dev/null)"
 	return 0
 }
 

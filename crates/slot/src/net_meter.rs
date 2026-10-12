@@ -10,10 +10,12 @@ pub const NET_POLL_MS: Millis = 1000;
 pub struct NetMeter {
     stats: PathBuf,
     wireless: PathBuf,
+    ssid_file: PathBuf,
     iface: String,
     last: Option<(Millis, u64, u64)>,
     rate: Option<(u64, u64)>,
     dbm: Option<i32>,
+    ssid: Option<String>,
 }
 
 impl NetMeter {
@@ -23,17 +25,26 @@ impl NetMeter {
             Path::new("/proc/net/wireless"),
             "wlan0",
         )
+        .with_ssid_file(Path::new("/run/slot-wifi.ssid"))
     }
 
     pub fn at(stats: &Path, wireless: &Path, iface: &str) -> Self {
         NetMeter {
             stats: stats.to_path_buf(),
             wireless: wireless.to_path_buf(),
+            ssid_file: PathBuf::new(),
             iface: iface.to_string(),
             last: None,
             rate: None,
             dbm: None,
+            ssid: None,
         }
+    }
+
+    /// Where wifi.sh leaves the joined network's name.
+    pub fn with_ssid_file(mut self, path: &Path) -> Self {
+        self.ssid_file = path.to_path_buf();
+        self
     }
 
     /// Reads the counters; the rate is known from the second sample on.
@@ -41,6 +52,10 @@ impl NetMeter {
         self.dbm = std::fs::read_to_string(&self.wireless)
             .ok()
             .and_then(|t| wireless_dbm(&t, &self.iface));
+        self.ssid = std::fs::read_to_string(&self.ssid_file)
+            .ok()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
         let (Some(rx), Some(tx)) = (self.counter("rx_bytes"), self.counter("tx_bytes")) else {
             self.last = None;
             self.rate = None;
@@ -60,15 +75,21 @@ impl NetMeter {
         self.last = None;
         self.rate = None;
         self.dbm = None;
+        self.ssid = None;
     }
 
     pub fn sampled(&self) -> bool {
-        self.last.is_some() || self.dbm.is_some()
+        self.last.is_some() || self.dbm.is_some() || self.ssid.is_some()
     }
 
     /// Bytes a second down and up.
     pub fn rate(&self) -> Option<(u64, u64)> {
         self.rate
+    }
+
+    /// The name of the network the radio joined.
+    pub fn ssid(&self) -> Option<&str> {
+        self.ssid.as_deref()
     }
 
     pub fn bars(&self) -> Option<u8> {
