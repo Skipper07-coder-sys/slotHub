@@ -203,6 +203,12 @@ fn root() -> std::ffi::OsString {
     std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into())
 }
 
+/// Jobs asked for and not yet finished. A job that a newer one has already
+/// replaced leaves the state to it, so turning something off and straight back
+/// on never ends reading Off.
+#[cfg(feature = "device")]
+static PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 #[cfg(feature = "device")]
 fn queue() -> &'static Sender<Work> {
     static Q: OnceLock<Sender<Work>> = OnceLock::new();
@@ -214,7 +220,9 @@ fn queue() -> &'static Sender<Work> {
                 for work in rx {
                     match work {
                         Work::Job(job) => {
-                            store(BtState::during(&job));
+                            if PENDING.load(Ordering::SeqCst) == 1 {
+                                store(BtState::during(&job));
+                            }
                             let exit = bt_command(Path::new(&root()), &job.args())
                                 .status()
                                 .ok()
@@ -223,7 +231,9 @@ fn queue() -> &'static Sender<Work> {
                             if job == BtJob::Off {
                                 set_device(None);
                             }
-                            store(BtState::after(&job, exit));
+                            if PENDING.fetch_sub(1, Ordering::SeqCst) == 1 {
+                                store(BtState::after(&job, exit));
+                            }
                         }
                         Work::Scan => {
                             let found = bt_command(Path::new(&root()), &["scan"])
@@ -262,6 +272,7 @@ pub struct BtQueue {
 impl BtJobs for BtQueue {
     fn ask(&mut self, job: BtJob) {
         store(BtState::during(&job));
+        PENDING.fetch_add(1, Ordering::SeqCst);
         let _ = queue().send(Work::Job(job));
     }
 

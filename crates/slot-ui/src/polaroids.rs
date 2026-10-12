@@ -19,7 +19,12 @@ const DOT_DIM: f32 = 0.35;
 
 const MARGIN: f32 = 16.0;
 
-pub const LEGEND: [(&str, &str); 3] = [("B", "Back"), ("Y", "Delete"), ("A", "Load")];
+pub const LEGEND: [(&str, &str); 4] = [
+    ("B", "Back"),
+    ("Y", "Delete"),
+    ("SELECT", "Label"),
+    ("A", "Load"),
+];
 const WAYS_OUT: usize = 2;
 const UNDO_KEY: &str = "X";
 

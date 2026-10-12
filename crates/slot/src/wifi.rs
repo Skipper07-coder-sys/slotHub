@@ -200,6 +200,12 @@ fn load() -> WifiState {
         .unwrap_or(WifiState::Off)
 }
 
+/// Jobs asked for and not yet finished. A job that a newer one has already
+/// replaced leaves the state to it, so turning something off and straight back
+/// on never ends reading Off.
+#[cfg(feature = "device")]
+static PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 #[cfg(feature = "device")]
 fn queue() -> &'static Sender<WifiJob> {
     static Q: OnceLock<Sender<WifiJob>> = OnceLock::new();
@@ -219,13 +225,18 @@ fn queue() -> &'static Sender<WifiJob> {
                         *SCANNED.lock().unwrap_or_else(|e| e.into_inner()) = Some(found);
                         continue;
                     }
-                    store(WifiState::during(job));
+                    let latest = || PENDING.load(Ordering::SeqCst) == 1;
+                    if latest() {
+                        store(WifiState::during(job));
+                    }
                     let exit = wifi_command(Path::new(&root), job)
                         .status()
                         .ok()
                         .and_then(|s| s.code());
                     eprintln!("slot: wifi {} exited {exit:?}", job.arg());
-                    store(WifiState::after(job, exit));
+                    if PENDING.fetch_sub(1, Ordering::SeqCst) == 1 {
+                        store(WifiState::after(job, exit));
+                    }
                 }
             })
             .expect("wifi thread");
@@ -236,7 +247,10 @@ fn queue() -> &'static Sender<WifiJob> {
 #[cfg(feature = "device")]
 impl WifiJobs for WifiQueue {
     fn ask(&mut self, job: WifiJob) {
-        store(WifiState::during(job));
+        if job != WifiJob::Scan {
+            store(WifiState::during(job));
+            PENDING.fetch_add(1, Ordering::SeqCst);
+        }
         let _ = queue().send(job);
     }
 

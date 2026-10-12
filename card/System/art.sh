@@ -1,10 +1,15 @@
 #!/bin/sh
-# Game artwork: fetches box art for every game that has no label yet, from
-# the libretro thumbnail server RetroArch uses (thumbnails.libretro.com). Art
-# is named after No-Intro game names, so a ROM called
-# "Pokemon - Emerald Version (USA, Europe).gba" finds its box; a ROM whose
+# Game artwork: fetches a label for every game that has no label yet, from
+# the libretro thumbnail server RetroArch uses (thumbnails.libretro.com). The
+# game's logo comes first, since slot puts it on the cart's label the way a
+# real cartridge shows it; the box is the fallback. Art is named after
+# No-Intro game names, so a ROM called
+# "Pokemon - Emerald Version (USA, Europe).gba" finds its art; a ROM whose
 # name only matches once the bracketed tags are dropped is matched against
-# the server's list of names. Labels land in Labels/<GBA|GB|GBC>/<rom>.png,
+# the server's list of names. A GBA ROM that matches neither, a romhack or a
+# file renamed by hand, is looked up by the game code in its header (romhacks
+# keep their base game's), through libretro-database's serial list, and gets
+# that game's art. Labels land in Labels/<GBA|GB|GBC>/<rom>.png,
 # where slot looks for them. Verb:
 #   fetch   prints "games N" first, "progress K N" as it goes and finally
 #           "done FOUND MISSING"
@@ -14,8 +19,9 @@ set -u
 SD="${SLOT_ROOT:-/mnt/sdcard}"
 CURL="${AGS_CURL:-curl}"
 SERVER="${AGS_ART_SERVER:-https://thumbnails.libretro.com}"
-KIND="${AGS_ART_KIND:-Named_Boxarts}"
+KINDS="${AGS_ART_KINDS:-Named_Logos Named_Boxarts}"
 RUN="${AGS_ART_RUN:-/tmp/slot-art}"
+SERIALS="${AGS_ART_SERIALS:-https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/serial/Nintendo%20-%20Game%20Boy%20Advance.dat}"
 LOG="$RUN/art.log"
 
 log() {
@@ -61,7 +67,7 @@ get() {
 # The server's names for one system, fetched once a run, each after its plain
 # form: the directory page links every PNG.
 names_of() {
-	file="$RUN/names-$(plain "$1").txt"
+	file="$RUN/names-$KIND-$(plain "$1").txt"
 	if [ ! -s "$file" ]; then
 		$CURL -fsSL -g --connect-timeout 10 --max-time 60 -H 'User-Agent: slot-art' \
 			"$SERVER/$(urlencode "$1")/$KIND/" 2>/dev/null |
@@ -106,10 +112,60 @@ fetch_one() {
 	return 1
 }
 
+# The four-letter game code in a GBA header (offset 0xAC), e.g. BPRE.
+game_code() {
+	code="$(dd if="$1" bs=1 skip=172 count=4 2>/dev/null)"
+	case "$code" in
+	[A-Z0-9][A-Z0-9][A-Z0-9][A-Z0-9]) echo "$code" ;;
+	*) return 1 ;;
+	esac
+}
+
+# The No-Intro name for a GBA game code, preferring the USA release; the
+# serial list is fetched once a run.
+name_for_code() {
+	file="$RUN/gba-serials.dat"
+	if [ ! -s "$file" ]; then
+		$CURL -fsSL --connect-timeout 10 --max-time 60 -H 'User-Agent: slot-art' \
+			-o "$file" "$SERIALS" 2>/dev/null || { rm -f "$file"; return 1; }
+	fi
+	awk -v want="AGB-$1-" '
+		/^[ \t]*comment "/ { name = $0; sub(/^[ \t]*comment "/, "", name); sub(/"[ \t]*$/, "", name) }
+		/^[ \t]*serial "/ && index($0, "\"" want) {
+			if (name ~ /\(USA/) { print name; found = 1; exit }
+			if (first == "") first = name
+		}
+		END { if (!found && first != "") print first }' "$file"
+}
+
+# A logo by name, then by game code, then the same for the box.
+# fetch_one's variables are global, so these keep names of their own.
+art_for() {
+	code=""
+	basegame=""
+	looked=""
+	for KIND in $KINDS; do
+		fetch_one "$1" "$2" "$4" && return 0
+		if [ -z "$looked" ] && [ "$1" = GBA ]; then
+			looked=1
+			code="$(game_code "$3")" && basegame="$(name_for_code "$code")"
+		fi
+		if [ -n "$basegame" ] && fetch_one "$1" "$basegame" "$4"; then
+			log "$2: game code $code, $KIND of $basegame"
+			return 0
+		fi
+	done
+	return 1
+}
+
+reachable() {
+	$CURL -fsS -o /dev/null --connect-timeout 10 --max-time 20 -I "$SERVER/" 2>/dev/null
+}
+
 fetch() {
 	mkdir -p "$RUN" || return 1
 	rm -f "$RUN"/names-*.txt
-	if ! $CURL -fsS -o /dev/null --connect-timeout 10 --max-time 20 -I "$SERVER/" 2>/dev/null; then
+	if ! reachable; then
 		log "no answer from $SERVER"
 		return 4
 	fi
@@ -125,7 +181,7 @@ fetch() {
 			stem="${file%.*}"
 			have="$(ls "$SD/Labels/$dir" 2>/dev/null | grep -i -x -F "$stem.png")"
 			[ -n "$have" ] && continue
-			printf '%s\t%s\n' "$dir" "$stem" >> "$list"
+			printf '%s\t%s\t%s\n' "$dir" "$stem" "$rom" >> "$list"
 		done
 	done
 	total="$(wc -l < "$list" | tr -d ' ')"
@@ -133,15 +189,23 @@ fetch() {
 	found=0
 	missing=0
 	n=0
-	while IFS="$(printf '\t')" read -r dir stem; do
+	while IFS="$(printf '\t')" read -r dir stem rom; do
 		n=$((n + 1))
 		echo "progress $n $total"
 		mkdir -p "$SD/Labels/$dir"
-		if fetch_one "$dir" "$stem" "$SD/Labels/$dir/$stem.png"; then
+		# fetch_one's variables are global, so keep this game's own.
+		game="$stem"
+		label="$SD/Labels/$dir/$stem.png"
+		if art_for "$dir" "$game" "$rom" "$label"; then
 			found=$((found + 1))
+		elif ! reachable; then
+			# Wi-Fi went away mid-run: the rest would all read as Not Found.
+			log "lost $SERVER after $found found"
+			echo "done $found $missing"
+			return 4
 		else
 			missing=$((missing + 1))
-			log "$stem: no art found"
+			log "$game: no art found"
 		fi
 	done < "$list"
 	log "found $found, missing $missing"

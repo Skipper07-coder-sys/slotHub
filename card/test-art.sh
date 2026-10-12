@@ -101,6 +101,30 @@ rm -f "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts/Metroid Fusion"*
 out="$(run fetch)" || true
 echo "$out" | tail -n 1 | grep -qx "done 0 1" || fail "a game with no art: want done 0 1, got: $out"
 
+# A game's logo is preferred to its box.
+mkdir -p "$TMP/server/Nintendo - Game Boy Advance/Named_Logos"
+echo logo > "$TMP/server/Nintendo - Game Boy Advance/Named_Logos/Metroid Fusion (USA).png"
+echo box > "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts/Metroid Fusion (USA).png"
+out="$(run fetch)" || true
+grep -qx logo "$L/GBA/Metroid Fusion.png" 2>/dev/null || fail "the box was taken over the logo"
+
+# A romhack keeps its base game's code at 0xAC and gets that game's logo.
+echo fr-logo > "$TMP/server/Nintendo - Game Boy Advance/Named_Logos/Pokemon - FireRed Version (USA).png"
+cat > "$TMP/server/serials.dat" <<'DAT'
+game (
+	comment "Pokemon - FireRed Version (Europe)"
+	serial "AGB-BPRP-EUR"
+)
+game (
+	comment "Pokemon - FireRed Version (USA)"
+	serial "AGB-BPRE-USA"
+)
+DAT
+{ head -c 172 /dev/zero; printf BPRE; head -c 20 /dev/zero; } > "$TMP/card/Games/GBA/Radical Red v4.1.gba"
+out="$(SLOT_ROOT="$TMP/card" AGS_CURL="$TMP/bin/curl" AGS_ART_SERVER="http://art" AGS_ART_RUN="$TMP/run" \
+	AGS_ART_SERIALS="http://art/serials.dat" sh "$SCRIPT" fetch)" || true
+grep -qx fr-logo "$L/GBA/Radical Red v4.1.png" 2>/dev/null || fail "romhack did not get its base game's logo: $out"
+
 FAKE_OFFLINE=1 run fetch > /dev/null && rc=0 || rc=$?
 [ "$rc" = 4 ] || fail "offline fetch exited $rc, want 4"
 

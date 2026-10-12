@@ -7,7 +7,9 @@
 #   stop    stop serving
 # Only slot turns it on, from Wi-Fi > Wi-Fi Drive, and it never outlives Wi-Fi
 # or a restart (its state lives in /tmp). Anyone on the same network can open
-# it while it is on: there is no password, as with BaseOS's own SFTP login.
+# it while it is on: there is no password, as with BaseOS's own SFTP login, so
+# System (whose scripts run as root at the next start) and the .conf files at
+# the card root (Wi-Fi passwords, paired headphones) are kept out of reach.
 # Exit 0 on success, 3 when the server is not on the card, 1 otherwise.
 set -u
 
@@ -57,6 +59,9 @@ start() {
 	pass="$(tr -dc 'A-Za-z0-9' < /dev/urandom 2>/dev/null | head -c 24)"
 	"$FB" -d "$db" users add slot "${pass:-slot-drive-$$-unused}" \
 		--perm.execute=false >> "$LOG" 2>&1 || return 1
+	# FAT ignores case, so the rules must too: /system/update.sh is the same file.
+	"$FB" -d "$db" rules add --regex '(?i)^/system(/|$)' >> "$LOG" 2>&1 || return 1
+	"$FB" -d "$db" rules add --regex '(?i)\.conf$' >> "$LOG" 2>&1 || return 1
 	"$FB" -d "$db" -a 0.0.0.0 -p "$PORT" -r "$SD" >> "$LOG" 2>&1 &
 	echo $! > "$PIDFILE"
 	# Give it a moment to bind the port: a server that dies at once (the port

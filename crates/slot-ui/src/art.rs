@@ -5,7 +5,82 @@ pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
     if sw == 0 || sh == 0 {
         return None;
     }
+    Some(cover_rgba(&src, sw, sh, w, h))
+}
 
+/// Art for a cart's label. A picture fills the label, cropped like `cover`;
+/// a logo (a PNG mostly see-through, like libretro's Named_Logos) is fitted
+/// whole onto a colour drawn from it, the way Cart Studio's Logo Only
+/// labels look.
+pub fn fit_label(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
+    let (src, sw, sh) = decode(path)?;
+    if sw == 0 || sh == 0 {
+        return None;
+    }
+    if !is_logo(&src) {
+        return Some(cover_rgba(&src, sw, sh, w, h));
+    }
+    Some(logo_label(&src, sw, sh, w, h))
+}
+
+/// A tenth or more of the picture see-through.
+fn is_logo(src: &[u8]) -> bool {
+    let n = src.len() / 4;
+    let clear = src.chunks_exact(4).filter(|p| p[3] < 128).count();
+    n > 0 && clear * 10 >= n
+}
+
+/// The label's colour: the logo's own average, darkened under a light logo
+/// and paled under a dark one so the logo stands out.
+pub fn logo_backdrop(src: &[u8]) -> [u8; 3] {
+    let mut acc = [0u64; 3];
+    let mut weight = 0u64;
+    for p in src.chunks_exact(4) {
+        let a = p[3] as u64;
+        for c in 0..3 {
+            acc[c] += p[c] as u64 * a;
+        }
+        weight += a;
+    }
+    if weight == 0 {
+        return [32, 32, 32];
+    }
+    let avg = acc.map(|v| (v / weight) as u32);
+    let luma = (avg[0] * 299 + avg[1] * 587 + avg[2] * 114) / 1000;
+    if luma >= 128 {
+        avg.map(|v| (v / 4) as u8)
+    } else {
+        avg.map(|v| (v + (255 - v) * 17 / 20) as u8)
+    }
+}
+
+fn logo_label(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Vec<u8> {
+    let bg = logo_backdrop(src);
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    for _ in 0..w * h {
+        out.extend_from_slice(&[bg[0], bg[1], bg[2], 255]);
+    }
+    let room_w = w as f32 * 0.88;
+    let room_h = h as f32 * 0.8;
+    let scale = (room_w / sw as f32).min(room_h / sh as f32);
+    let lw = ((sw as f32 * scale).round() as u32).clamp(1, w);
+    let lh = ((sh as f32 * scale).round() as u32).clamp(1, h);
+    let logo = cover_rgba(src, sw, sh, lw, lh);
+    let (x0, y0) = ((w - lw) / 2, (h - lh) / 2);
+    for y in 0..lh {
+        for x in 0..lw {
+            let s = ((y * lw + x) * 4) as usize;
+            let d = (((y0 + y) * w + x0 + x) * 4) as usize;
+            let a = logo[s + 3] as u32;
+            for c in 0..3 {
+                out[d + c] = ((logo[s + c] as u32 * a + out[d + c] as u32 * (255 - a)) / 255) as u8;
+            }
+        }
+    }
+    out
+}
+
+fn cover_rgba(src: &[u8], sw: u32, sh: u32, w: u32, h: u32) -> Vec<u8> {
     let scale = (w as f32 / sw as f32).max(h as f32 / sh as f32);
     let ox = (sw as f32 - w as f32 / scale) / 2.0;
     let oy = (sh as f32 - h as f32 / scale) / 2.0;
@@ -17,11 +92,11 @@ pub fn cover(path: &Path, w: u32, h: u32) -> Option<Vec<u8>> {
         for x in 0..w {
             let x0 = ox + x as f32 / scale;
             let x1 = ox + (x + 1) as f32 / scale;
-            let px = box_average(&src, sw, sh, x0, y0, x1, y1);
+            let px = box_average(src, sw, sh, x0, y0, x1, y1);
             out[((y * w + x) * 4) as usize..][..4].copy_from_slice(&px);
         }
     }
-    Some(out)
+    out
 }
 
 fn box_average(src: &[u8], sw: u32, sh: u32, x0: f32, y0: f32, x1: f32, y1: f32) -> [u8; 4] {

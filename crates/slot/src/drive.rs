@@ -113,6 +113,12 @@ fn load() -> DriveState {
         .unwrap_or(DriveState::Off)
 }
 
+/// Jobs asked for and not yet finished. A job that a newer one has already
+/// replaced leaves the state to it, so turning something off and straight back
+/// on never ends reading Off.
+#[cfg(feature = "device")]
+static PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 #[cfg(feature = "device")]
 fn queue() -> &'static Sender<bool> {
     static Q: OnceLock<Sender<bool>> = OnceLock::new();
@@ -129,6 +135,9 @@ fn queue() -> &'static Sender<bool> {
                         .ok()
                         .and_then(|s| s.code());
                     eprintln!("slot: drive {verb} exited {exit:?}");
+                    if PENDING.fetch_sub(1, Ordering::SeqCst) > 1 {
+                        continue;
+                    }
                     store(match on {
                         true => DriveState::after_start(exit),
                         false => DriveState::Off,
@@ -144,11 +153,13 @@ fn queue() -> &'static Sender<bool> {
 impl DriveJobs for DriveQueue {
     fn start(&mut self) {
         store(DriveState::Starting);
+        PENDING.fetch_add(1, Ordering::SeqCst);
         let _ = queue().send(true);
     }
 
     fn stop(&mut self) {
         store(DriveState::Off);
+        PENDING.fetch_add(1, Ordering::SeqCst);
         let _ = queue().send(false);
     }
 

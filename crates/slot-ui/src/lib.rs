@@ -1,5 +1,5 @@
 mod art;
-pub use art::cover;
+pub use art::{cover, fit_label};
 mod backdrop;
 mod barcode;
 mod battery;
