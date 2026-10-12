@@ -121,12 +121,18 @@ out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/b
 [ "$out" = "AA:AA:AA:AA:AA:03 Le battonetes 2" ] || fail "status printed '$out'"
 
 reset
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Paired: yes" "Connected: yes"
-rm -f "$TMP/bin/bluealsa-aplay"
-printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/bluealsa-aplay"
-chmod 755 "$TMP/bin/bluealsa-aplay"
-PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/bin/bluealsa-aplay" \
-	sh "$SCRIPT" status > /dev/null 2>&1 && fail "status called a link with no A2DP stream playable"
+device AA:AA:AA:AA:AA:04 "Name: AirPods Pro - Find My" "Icon: audio-headphones" "UUID: Audio Sink" "RSSI: -30"
+run pair && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "pair with only the merged LE entry exited $rc"
+grep -q "^connect AA:AA:AA:AA:AA:04" "$TMP/btctl.log" || fail "pair never asked the only headphones to connect"
+
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
+printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/bluealsa-aplay"
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/bin/bluealsa-aplay" sh "$SCRIPT" status 2>/dev/null)" || true
+[ "$out" = "AA:AA:AA:AA:AA:03 AirPods Pro" ] || fail "status ignored linked headphones when bluealsa-aplay cannot list: '$out'"
+run on && rc=0 || rc=$?
+grep -q "disconnect" "$TMP/btctl.log" && fail "on disconnected headphones it could not confirm"
 
 reset
 : > "$TMP/run/bluetoothd"

@@ -28,7 +28,7 @@ const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
 
 const BT_RETRY_AFTER: Duration = Duration::from_secs(2);
 
-const BT_RETRIES: u32 = 5;
+const BT_RETRIES: u32 = 15;
 
 type PcmOpen = unsafe extern "C" fn(*mut *mut c_void, *const c_char, c_int, c_int) -> c_int;
 type PcmSetParams =
