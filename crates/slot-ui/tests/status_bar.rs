@@ -73,3 +73,26 @@ fn wifi_sits_at_the_right_edge_with_bluetooth_then_the_meter_to_its_left() {
     assert!(bt.1 + bt.2 <= wifi.1);
     assert!(rate.1 + rate.2 <= bt.1);
 }
+
+#[test]
+fn the_shelf_radios_sit_left_of_the_clock_with_wifi_nearest() {
+    let clock = slot_ui::Printed::new(TexId::from_raw(9), 60);
+    let mut out = Vec::new();
+    slot_ui::draw_footer_radios(
+        clock,
+        Some((TexId::from_raw(1), 20, 24)),
+        Some((TexId::from_raw(2), 20, 24)),
+        &mut out,
+    );
+    let x = |t: usize| {
+        out.iter()
+            .find_map(|d| match d {
+                Draw::Tex { tex, x, w, .. } if *tex == TexId::from_raw(t) => Some((*x, *w)),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let (wifi, bt) = (x(2), x(1));
+    assert!(wifi.0 + wifi.1 <= OUT_W as f32 - 60.0);
+    assert!(bt.0 + bt.1 <= wifi.0);
+}

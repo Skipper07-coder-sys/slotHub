@@ -35,6 +35,29 @@ pub fn draw_footer(
     printed(OUT_W as f32 - FOOTER_MARGIN - clock.w as f32, clock, out);
 }
 
+const RADIO_GAP: f32 = 10.0;
+
+/// The Wi-Fi and Bluetooth glyphs to the left of the clock, Wi-Fi nearest it.
+pub fn draw_footer_radios(
+    clock: Printed,
+    bt: Option<(TexId, u32, u32)>,
+    wifi: Option<(TexId, u32, u32)>,
+    out: &mut Vec<Draw>,
+) {
+    let mut right = OUT_W as f32 - FOOTER_MARGIN - clock.w as f32;
+    for (tex, w, h) in [wifi, bt].into_iter().flatten() {
+        right -= RADIO_GAP + w as f32;
+        out.push(Draw::Tex {
+            x: right.round(),
+            y: FOOTER_Y + (HINT_H as f32 - h as f32) / 2.0,
+            w: w as f32,
+            h: h as f32,
+            tex,
+            alpha: 1.0,
+        });
+    }
+}
+
 pub(crate) fn draw_printed(x: f32, y: f32, p: Printed, out: &mut Vec<Draw>) {
     if p.w == 0 {
         return;

@@ -932,10 +932,13 @@ impl App {
         self.status_rate_face = face;
     }
 
+    fn status_faces_now(&self) -> [Option<(TexId, u32, u32)>; 2] {
+        self.status_icons()
+            .map(|(icon, lit)| self.status_faces.get(icon.index()).map(|f| f[lit as usize]))
+    }
+
     fn status_bar(&self) -> StatusBar {
-        let [bt, wifi] = self
-            .status_icons()
-            .map(|(icon, lit)| self.status_faces.get(icon.index()).map(|f| f[lit as usize]));
+        let [bt, wifi] = self.status_faces_now();
         StatusBar {
             bt,
             wifi,
@@ -948,7 +951,8 @@ impl App {
     }
 
     fn net_timers(&mut self) {
-        if self.quick_menu().is_none() || !self.net_live() {
+        let shown = self.quick_menu().is_some() || matches!(self.phase, Phase::Shelf);
+        if !shown || !self.net_live() {
             if self.net.sampled() {
                 self.net.reset();
             }
@@ -2570,6 +2574,8 @@ impl App {
                     self.shelf_clock,
                     out,
                 );
+                let [bt, wifi] = self.status_faces_now();
+                slot_ui::draw_footer_radios(self.shelf_clock, bt, wifi, out);
             }
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);
