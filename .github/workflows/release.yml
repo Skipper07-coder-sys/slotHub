@@ -69,17 +69,13 @@ jobs:
       - name: Add File Browser for Wi-Fi Drive
         env:
           FB_VERSION: v2.32.0
-          GH_API: https://api.github.com/repos/filebrowser/filebrowser
+          FB_SHA256: 1d45a0ea437ab23ffa9fac0f52064ca5e91e4e43828a4e29f0d5bcbf60fdbf03
         run: |
           set -eu
           tmp="$(mktemp -d)"
           base="https://github.com/filebrowser/filebrowser/releases/download/$FB_VERSION"
           curl -fsSL -o "$tmp/linux-arm64-filebrowser.tar.gz" "$base/linux-arm64-filebrowser.tar.gz"
-          sums="$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" "$GH_API/releases/tags/$FB_VERSION" \
-            | grep -o '"browser_download_url": *"[^"]*checksums[^"]*"' | grep -o 'https://[^"]*' | head -n 1)"
-          curl -fsSL -o "$tmp/sums.txt" "$sums"
-          (cd "$tmp" && grep ' linux-arm64-filebrowser.tar.gz$' sums.txt | sha256sum -c -)
-          sha256sum "$tmp/linux-arm64-filebrowser.tar.gz"
+          echo "$FB_SHA256  $tmp/linux-arm64-filebrowser.tar.gz" | sha256sum -c -
           tar -xzf "$tmp/linux-arm64-filebrowser.tar.gz" -C "$tmp" filebrowser
           mkdir -p "$OUT/System/bin"
           install -m 755 "$tmp/filebrowser" "$OUT/System/bin/filebrowser"
