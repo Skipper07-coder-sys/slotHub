@@ -30,7 +30,12 @@ case "\$1" in
 			echo "Device \$(basename "\$d") \$(sed -n 's/^.*Name: //p' "\$d/info")"
 		done ;;
 	info) cat "$TMP/bt/\$2/info" 2>/dev/null ;;
-	pair) echo "	Paired: yes" >> "$TMP/bt/\$2/info" ;;
+	pair)
+		if [ -n "\${FAKE_REJECT:-}" ]; then
+			echo "Failed to pair: org.bluez.Error.AuthenticationRejected"
+		else
+			echo "	Paired: yes" >> "$TMP/bt/\$2/info"
+		fi ;;
 	connect) echo "	Connected: yes" >> "$TMP/bt/\$2/info" ;;
 esac
 exit 0
@@ -133,6 +138,18 @@ out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/b
 [ "$out" = "AA:AA:AA:AA:AA:03 AirPods Pro" ] || fail "status ignored linked headphones when bluealsa-aplay cannot list: '$out'"
 run on && rc=0 || rc=$?
 grep -q "disconnect" "$TMP/btctl.log" && fail "on disconnected headphones it could not confirm"
+
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
+run pair && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "pair with headphones already connected exited $rc"
+grep -q "^scan on" "$TMP/btctl.log" && fail "pair scanned while headphones were connected, which drops A2DP"
+
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "RSSI: -40"
+FAKE_REJECT=1 run pair && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "a rejected pairing exited $rc, not 1"
+grep -q "^remove AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "a rejected pairing did not forget the stale bond"
 
 reset
 : > "$TMP/run/bluetoothd"

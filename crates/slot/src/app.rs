@@ -1418,7 +1418,7 @@ impl App {
     }
 
     fn pair_headphones(&mut self) {
-        if self.bt.state().busy() {
+        if self.bt.state().busy() || self.bt_connected {
             return;
         }
         if !self.state.bluetooth {

@@ -173,6 +173,13 @@ headphones() {
 
 pair() {
 	up || return 1
+	# A scan while A2DP is up tears the stream down a few seconds later.
+	for mac in $(paired); do
+		if audio "$mac" && connected "$mac"; then
+			log "$(name_of "$mac") ($mac) already connected, not searching"
+			return 0
+		fi
+	done
 	log "searching for headphones"
 	{
 		echo "scan on"
@@ -190,8 +197,18 @@ pair() {
 	name="$(name_of "$mac")"
 	log "pairing ${name:-$mac} ($mac)"
 	if ! btctl 5 info "$mac" | grep -q "Paired: yes"; then
-		btctl 30 pair "$mac" >> "$LOG"
-		wait_for "btctl 5 info $mac | grep -q 'Paired: yes'" 5 || { log "pairing failed"; return 1; }
+		out="$(btctl 40 pair "$mac")"
+		printf '%s\n' "$out" >> "$LOG"
+		if ! wait_for "btctl 5 info $mac | grep -q 'Paired: yes'" 5; then
+			# A stale bond makes BlueZ fail with AuthenticationRejected every time.
+			# Forget it so the next press, with the case in pairing mode, starts clean.
+			if printf '%s\n' "$out" | grep -q -e AuthenticationRejected -e AuthenticationFailed; then
+				btctl 10 remove "$mac" >> "$LOG"
+				log "pairing rejected; forgot $mac, put the headphones in pairing mode and try again"
+			fi
+			log "pairing failed"
+			return 1
+		fi
 	fi
 	btctl 5 trust "$mac" >/dev/null
 	connect "$mac" || { log "paired but would not connect"; return 1; }

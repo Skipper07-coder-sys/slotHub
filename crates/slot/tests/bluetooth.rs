@@ -131,6 +131,12 @@ fn connected_headphones_take_the_sound_and_show_their_name() {
         Some(QuickValue::Connected)
     );
     assert_eq!(a.bt_device_name().as_deref(), Some("Le battonetes 2"));
+    press(&mut a, Btn::Down);
+    press(&mut a, Btn::A);
+    assert!(
+        !fake.asked.lock().unwrap().contains(&BtJob::Pair),
+        "A on connected headphones started a search, which drops their stream"
+    );
     assert_eq!(
         slot::audio::route::bluetooth_device().as_deref(),
         Some("30:7A:D2:85:D8:1D")
