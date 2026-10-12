@@ -1,7 +1,7 @@
 use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 use slot_power::Battery;
 
-use crate::battery::{draw_gauge, GAUGE_H};
+use crate::battery::{draw_gauge, gauge_right, GAUGE_H};
 use crate::plate::HINT_H;
 use crate::slot_chrome::MOUTH_H;
 
@@ -33,6 +33,34 @@ pub fn draw_footer(
     let y = FOOTER_Y + (HINT_H as f32 - GAUGE_H) / 2.0;
     draw_gauge(FOOTER_MARGIN, y, battery, percent, bolt, out);
     printed(OUT_W as f32 - FOOTER_MARGIN - clock.w as f32, clock, out);
+}
+
+const RADIO_GAP: f32 = 12.0;
+
+/// The Bluetooth and Wi-Fi glyphs to the right of the battery, in a status
+/// group the way muOS keeps them.
+pub fn draw_footer_radios(
+    battery: Option<Battery>,
+    percent: Printed,
+    bt: Option<(TexId, u32, u32)>,
+    wifi: Option<(TexId, u32, u32)>,
+    out: &mut Vec<Draw>,
+) {
+    let mut left = match battery {
+        Some(_) => gauge_right(FOOTER_MARGIN, percent) + RADIO_GAP,
+        None => FOOTER_MARGIN,
+    };
+    for (tex, w, h) in [bt, wifi].into_iter().flatten() {
+        out.push(Draw::Tex {
+            x: left.round(),
+            y: FOOTER_Y + (HINT_H as f32 - h as f32) / 2.0,
+            w: w as f32,
+            h: h as f32,
+            tex,
+            alpha: 1.0,
+        });
+        left += w as f32 + RADIO_GAP;
+    }
 }
 
 pub(crate) fn draw_printed(x: f32, y: f32, p: Printed, out: &mut Vec<Draw>) {

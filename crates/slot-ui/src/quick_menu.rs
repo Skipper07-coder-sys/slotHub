@@ -96,11 +96,14 @@ impl QuickRow {
     pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 6] = [
+    pub const LIVE: [QuickRow; 9] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
         QuickRow::BtHeadphones,
+        QuickRow::Wifi,
+        QuickRow::Bluetooth,
+        QuickRow::WifiNetwork,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
     ];
@@ -368,7 +371,7 @@ const CARET_GAP: f32 = 14.0;
 const CARET_PX: f32 = 24.0;
 const LEGEND_Y: f32 = 427.0;
 pub const QUICK_SPLIT: f32 = LEGEND_Y - 2.0;
-const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
+pub(crate) const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
 
 pub fn quick_label_face(row: QuickRow) -> UndoFace {
     quick_text_face(row.label(), MENU_INK)

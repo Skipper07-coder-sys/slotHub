@@ -15,10 +15,10 @@ const NUB_H: f32 = 4.0;
 pub const WALL: f32 = 1.5;
 const GAP: f32 = 7.0;
 
-const BOLT_W: f32 = 14.0;
-const BOLT_H: f32 = 14.0;
-const BOLT_GAP: f32 = 5.0;
-const _: () = assert!(BOLT_GAP > 0.0);
+/// The bolt sits on the capsule while charging, its halo keeping it clear of
+/// the fill, the way muOS draws one charging battery rather than two icons.
+const BOLT_W: f32 = 13.0;
+const BOLT_H: f32 = 13.0;
 
 const INK: [f32; 4] = [
     HUD_INK[0] as f32 / 255.0,
@@ -49,7 +49,7 @@ pub fn draw_gauge(
         });
     };
 
-    let cx = x + BOLT_W + BOLT_GAP;
+    let cx = x;
 
     rect(cx, y, GAUGE_W, WALL, out);
     rect(cx, y + GAUGE_H - WALL, GAUGE_W, WALL, out);
@@ -71,8 +71,8 @@ pub fn draw_gauge(
 
     if let (Charge::Charging, Some(tex)) = (b.charge, bolt) {
         out.push(Draw::Tex {
-            x,
-            y: y + (GAUGE_H - BOLT_H) / 2.0,
+            x: (cx + (GAUGE_W - BOLT_W) / 2.0).round(),
+            y: (y + (GAUGE_H - BOLT_H) / 2.0).round(),
             w: BOLT_W,
             h: BOLT_H,
             tex,
@@ -100,5 +100,13 @@ pub fn draw_gauge(
                 colour: [1.0, 1.0, 1.0, 0.08],
             },
         });
+    }
+}
+
+/// Where the gauge drawn at `x` ends, its percent included.
+pub fn gauge_right(x: f32, percent: Printed) -> f32 {
+    match percent.w {
+        0 => x + GAUGE_W + NUB_W,
+        w => x + GAUGE_W + NUB_W + GAP + w as f32,
     }
 }

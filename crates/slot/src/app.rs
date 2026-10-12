@@ -17,9 +17,9 @@ use slot_ui::{
     draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
     BtSetup, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis,
     Placed, Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal,
-    SetupKey, SetupOutcome, Shelf, SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W,
-    CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H,
-    SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    SetupKey, SetupOutcome, Shelf, SlotChrome, StatusBar, StatusIcon, TexId, Toast, WifiSetup,
+    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
+    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::art::{art_jobs, ArtJobs};
@@ -31,6 +31,7 @@ use crate::link_kind::{link_carried, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
 use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
+use crate::net_meter::{NetMeter, NET_POLL_MS};
 use crate::persist::{self, Snapshot};
 use crate::update::{update_jobs, Installed, UpdateJob, UpdateJobs, UpdateState};
 use crate::video_mode::{self, VideoMode};
@@ -335,6 +336,10 @@ pub struct App {
     clock_faces: Option<(TexId, TexId)>,
     quick_menu_faces: Option<QuickMenuFaces>,
     quick_live_faces: LiveFaces,
+    status_faces: Vec<[(TexId, u32, u32); 2]>,
+    status_rate_face: Option<(TexId, u32, u32)>,
+    net: NetMeter,
+    net_at: Millis,
     sticker_face: Option<TexId>,
     wallpaper: Option<TexId>,
     battery_percent: slot_ui::Printed,
@@ -497,6 +502,10 @@ impl App {
             clock_faces: None,
             quick_menu_faces: None,
             quick_live_faces: [None; QuickRow::ALL.len()],
+            status_faces: Vec::new(),
+            status_rate_face: None,
+            net: NetMeter::system(),
+            net_at: 0,
             sticker_face: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
@@ -756,9 +765,34 @@ impl App {
             QuickRow::SlotUpdate => Some(self.update_text(UpdateJob::Slot)),
             QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
             QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
+            QuickRow::Wifi | QuickRow::WifiNetwork => Some(self.wifi_row_text()),
+            QuickRow::Bluetooth => Some(self.bt_row_text()),
             QuickRow::WifiDrive => Some(self.drive_text()),
             QuickRow::WifiArt => Some(self.art_text()),
             _ => None,
+        }
+    }
+
+    /// What the Wi-Fi rows say: the network's name once joined.
+    fn wifi_row_text(&self) -> String {
+        match self.network_value() {
+            QuickValue::Online => self
+                .net
+                .ssid()
+                .map(device_label)
+                .unwrap_or("Connected".into()),
+            v => v.text().to_string(),
+        }
+    }
+
+    /// What the main page's Bluetooth row says: the headphones once connected.
+    fn bt_row_text(&self) -> String {
+        if !self.state.bluetooth {
+            return QuickValue::Off.text().into();
+        }
+        match self.bt_device_name() {
+            Some(name) => device_label(&name),
+            None => self.headphones_value().text().into(),
         }
     }
 
@@ -1033,6 +1067,83 @@ impl App {
 
     pub fn clear_quick_live_faces(&mut self, row: QuickRow) {
         self.quick_live_faces[row.index()] = None;
+    }
+
+    /// The Bluetooth and Wi-Fi glyphs the settings menu shows, each with
+    /// whether it is lit.
+    pub fn status_icons(&self) -> [(StatusIcon, bool); 2] {
+        // On but no headphones is the plain glyph, dim, so only a live link
+        // reads as lit.
+        let bt = if !self.state.bluetooth {
+            (StatusIcon::BtOff, false)
+        } else if self.bt_connected {
+            (StatusIcon::BtConnected, true)
+        } else {
+            (StatusIcon::Bt, false)
+        };
+        let wifi = match self.wifi.state() {
+            _ if !self.state.wifi => (StatusIcon::WifiOff, false),
+            WifiState::Off => (StatusIcon::WifiOff, false),
+            WifiState::Connecting => (StatusIcon::WifiSearching, false),
+            WifiState::Online => (StatusIcon::wifi_bars(self.net.bars()), true),
+            WifiState::NoSetup | WifiState::NotFound | WifiState::NoAddress | WifiState::Failed => {
+                (StatusIcon::WifiTrouble, false)
+            }
+        };
+        [bt, wifi]
+    }
+
+    /// Bytes a second down and up while the settings menu is open on a
+    /// connected Wi-Fi.
+    pub fn net_rate(&self) -> Option<(u64, u64)> {
+        self.quick_menu()?;
+        self.net_live().then(|| self.net.rate()).flatten()
+    }
+
+    pub fn set_net_meter(&mut self, net: NetMeter) {
+        self.net = net;
+        self.net_at = 0;
+    }
+
+    pub fn set_status_faces(&mut self, faces: Vec<[(TexId, u32, u32); 2]>) {
+        self.status_faces = faces;
+    }
+
+    pub fn set_status_rate_face(&mut self, face: Option<(TexId, u32, u32)>) {
+        self.status_rate_face = face;
+    }
+
+    fn status_faces_now(&self) -> [Option<(TexId, u32, u32)>; 2] {
+        self.status_icons()
+            .map(|(icon, lit)| self.status_faces.get(icon.index()).map(|f| f[lit as usize]))
+    }
+
+    fn status_bar(&self) -> StatusBar {
+        let [bt, wifi] = self.status_faces_now();
+        StatusBar {
+            bt,
+            wifi,
+            rate: self.net_rate().and(self.status_rate_face),
+        }
+    }
+
+    fn net_live(&self) -> bool {
+        self.state.wifi && self.wifi.state() == WifiState::Online
+    }
+
+    fn net_timers(&mut self) {
+        let shown = self.quick_menu().is_some() || matches!(self.phase, Phase::Shelf);
+        if !shown || !self.net_live() {
+            if self.net.sampled() {
+                self.net.reset();
+            }
+            self.net_at = 0;
+            return;
+        }
+        if self.now() >= self.net_at {
+            self.net_at = self.now() + NET_POLL_MS;
+            self.net.sample(self.now());
+        }
     }
 
     pub fn set_sticker_face(&mut self, face: TexId) {
@@ -2353,6 +2464,7 @@ impl App {
         self.wifi_setup_timers();
         self.bt_setup_timers();
         self.update_timers();
+        self.net_timers();
         self.drive_timers();
         self.art_timers();
         let offer = self.undo_label();
@@ -2619,14 +2731,17 @@ impl App {
                 picker.draw(line, hint, back, out);
                 return;
             }
-            Phase::QuickMenu { row } => QuickMenu {
-                row: *row,
-                pure: self.pure,
-                values: QuickRow::ALL.map(|r| self.quick_value(r)),
-                live: &self.quick_live_faces,
-                faces: self.quick_menu_faces.as_ref(),
+            Phase::QuickMenu { row } => {
+                QuickMenu {
+                    row: *row,
+                    pure: self.pure,
+                    values: QuickRow::ALL.map(|r| self.quick_value(r)),
+                    live: &self.quick_live_faces,
+                    faces: self.quick_menu_faces.as_ref(),
+                }
+                .draw(out);
+                self.status_bar().draw(out);
             }
-            .draw(out),
             Phase::Shelf => {
                 draw_backdrop(self.wallpaper, out);
                 match (self.core_picker_shown(), self.selected_stem()) {
@@ -2649,6 +2764,8 @@ impl App {
                     self.shelf_clock,
                     out,
                 );
+                let [bt, wifi] = self.status_faces_now();
+                slot_ui::draw_footer_radios(self.battery, self.battery_percent, bt, wifi, out);
             }
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);

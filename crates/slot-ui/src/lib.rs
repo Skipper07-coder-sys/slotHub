@@ -22,6 +22,7 @@ mod shelf;
 mod shell;
 mod silhouette;
 mod slot_chrome;
+mod status_bar;
 mod sticker;
 pub mod text;
 mod toast;
@@ -29,7 +30,7 @@ mod wifi_setup;
 
 pub use backdrop::{bezel_face, draw_backdrop, wallpaper_face};
 pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
-pub use battery::{draw_gauge, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
+pub use battery::{draw_gauge, gauge_right, BOLT_PX, GAUGE_H, GAUGE_W, WALL};
 pub use board::{
     board_at, board_face, board_from, board_zoom, chip_face, chip_shadow_face, grown, lid_at,
     lid_from, lift_of, on_board, padded, rom_marking, rom_marking_face, shelf_cart, shelf_cart_at,
@@ -46,7 +47,7 @@ pub use cart::{
 };
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
-pub use footer::{draw_footer, Printed};
+pub use footer::{draw_footer, draw_footer_radios, Printed};
 pub use hud::{
     badge_at, ff_badge, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H, HUD_ICON_PX,
     HUD_INK, HUD_MS, LINK_HOST_INK, LINK_JOIN_INK, PLATE_H,
@@ -81,6 +82,7 @@ pub use slot_chrome::{
     draw_empty_slot, draw_slot_name, ease, edge, housing, opening, recess, set_theme, SlotChrome,
     ALERT_PX, LIP_H, MOUTH_H, MOUTH_W,
 };
+pub use status_bar::{rate_face, rate_text, status_icon_face, StatusBar, StatusIcon};
 pub use sticker::{
     draw_sticker, head_rows, sticker_face, sticker_lines, StickerFields, COPYRIGHT, CREDITS, DC,
     HOME, ORIGIN, STICKER_H, STICKER_W,

@@ -48,7 +48,7 @@ fn nothing_moves_when_the_charge_state_changes() {
 }
 
 #[test]
-fn the_bolt_never_reaches_the_capsule() {
+fn the_bolt_sits_on_the_capsule_as_one_icon() {
     let mut out = Vec::new();
     draw_gauge(
         24.0,
@@ -58,24 +58,26 @@ fn the_bolt_never_reaches_the_capsule() {
         Some(TexId::from_raw(7)),
         &mut out,
     );
-    let bolt_right = out
+    let (bx, bw) = out
         .iter()
         .find_map(|d| match *d {
-            Draw::Tex { x, w, tex, .. } if tex == TexId::from_raw(7) => Some(x + w),
+            Draw::Tex { x, w, tex, .. } if tex == TexId::from_raw(7) => Some((x, w)),
             _ => None,
         })
         .expect("the bolt did not draw while charging");
-    let capsule_left = out
+    let rects: Vec<f32> = out
         .iter()
         .filter_map(|d| match *d {
             Draw::Rect { x, .. } => Some(x),
             _ => None,
         })
-        .fold(f32::MAX, f32::min);
-    assert!(
-        bolt_right <= capsule_left,
-        "the bolt's right edge ({bolt_right}) reaches past the capsule's left wall ({capsule_left})"
+        .collect();
+    let capsule_left = rects.iter().copied().fold(f32::MAX, f32::min);
+    assert_eq!(
+        capsule_left, 24.0,
+        "the capsule starts where the gauge does"
     );
+    assert!(bx >= capsule_left && bx + bw <= capsule_left + GAUGE_W);
 }
 
 #[test]
