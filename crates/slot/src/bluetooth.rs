@@ -115,14 +115,6 @@ fn bt_command(root: &Path, verb: &str) -> Command {
     cmd
 }
 
-#[cfg(any(feature = "device", test))]
-fn has_link(class: &Path) -> bool {
-    std::fs::read_dir(class).is_ok_and(|dir| {
-        dir.flatten()
-            .any(|e| e.file_name().to_string_lossy().contains(':'))
-    })
-}
-
 #[cfg(feature = "device")]
 static STATE: AtomicU8 = AtomicU8::new(BtState::Off as u8);
 
@@ -160,6 +152,9 @@ static ASKING: AtomicBool = AtomicBool::new(false);
 
 #[cfg(feature = "device")]
 const STATUS_EVERY: Duration = Duration::from_secs(2);
+
+#[cfg(feature = "device")]
+const STATUS_WHILE_CONNECTED: Duration = Duration::from_secs(5);
 
 #[cfg(feature = "device")]
 fn set_device(device: Option<BtDevice>) {
@@ -229,13 +224,15 @@ impl BtJobs for BtQueue {
         load()
     }
 
+    // The status script decides, not sysfs: on the device the row never said
+    // Connected while the headphones were, so no kernel entry is relied on.
     fn connected(&mut self) -> bool {
-        let link = load() != BtState::Off && has_link(Path::new("/sys/class/bluetooth"));
-        if !link {
+        if load() == BtState::Off {
             set_device(None);
+            return false;
         }
-        self.poll(link);
-        link
+        self.poll();
+        self.device().is_some()
     }
 
     fn device(&self) -> Option<BtDevice> {
@@ -250,15 +247,19 @@ impl BtQueue {
     }
 }
 
-// A link comes up before A2DP does, so the status script is asked again every
-// couple of seconds until it names headphones BlueALSA can play to.
+// The status script is asked every couple of seconds until it names connected
+// headphones, then less often to notice them going away.
 #[cfg(feature = "device")]
 impl BtQueue {
-    fn poll(&mut self, linked: bool) {
-        if !linked || self.device().is_some() || load().busy() {
+    fn poll(&mut self) {
+        if load().busy() {
             return;
         }
-        if self.asked_at.is_some_and(|at| at.elapsed() < STATUS_EVERY) {
+        let every = match self.device() {
+            Some(_) => STATUS_WHILE_CONNECTED,
+            None => STATUS_EVERY,
+        };
+        if self.asked_at.is_some_and(|at| at.elapsed() < every) {
             return;
         }
         if !ASKING.swap(true, Ordering::SeqCst) {
@@ -326,15 +327,5 @@ mod tests {
         );
         assert_eq!(BtDevice::parse(""), None);
         assert_eq!(BtDevice::parse("not-an-address name"), None);
-    }
-
-    #[test]
-    fn only_a_connection_handle_counts_as_a_link() {
-        let d = tempfile::tempdir().unwrap();
-        std::fs::create_dir(d.path().join("hci0")).unwrap();
-        assert!(!has_link(d.path()));
-        std::fs::create_dir(d.path().join("hci0:12")).unwrap();
-        assert!(has_link(d.path()));
-        assert!(!has_link(&d.path().join("missing")));
     }
 }
