@@ -16,9 +16,10 @@ use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
     draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, ClockPicker,
     Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, Shelf, SlotChrome, TexId, Toast,
-    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
-    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
+    SlotChrome, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W,
+    HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W,
+    TURN_PAD,
 };
 
 use crate::audio::Sfx;
@@ -29,6 +30,7 @@ use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
 use crate::persist::{self, Snapshot};
 use crate::video_mode::{self, VideoMode};
+use crate::wifi::{wifi_jobs, WifiJob, WifiJobs, WifiState};
 
 pub const INSERT_S: f32 = 0.73;
 const INSERT_HOLD_S: f32 = 0.28;
@@ -257,6 +259,9 @@ pub enum Phase {
     Doze {
         cart: Option<String>,
     },
+    WifiSetup {
+        setup: WifiSetup,
+    },
 }
 
 pub struct App {
@@ -349,6 +354,8 @@ pub struct App {
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
+    wifi: Box<dyn WifiJobs>,
+    wifi_setup_face: Option<TexId>,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -386,6 +393,8 @@ impl App {
         let card_failing = state_writer.card_failing();
         App {
             radio: radio_jobs(),
+            wifi: wifi_jobs(),
+            wifi_setup_face: None,
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -490,6 +499,9 @@ impl App {
         app.pure = read_pure(root);
         if app.pure {
             eprintln!("slot: pure: on, from {}", slot_store::PURE_FILE);
+        }
+        if app.state.wifi {
+            app.wifi.ask(WifiJob::On);
         }
         if app.state.clock_set {
             app.start();
@@ -668,7 +680,29 @@ impl App {
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
+            QuickRow::WifiPower => Some(QuickValue::flag(self.state.wifi)),
+            QuickRow::WifiNetwork => Some(self.network_value()),
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Wifi
+            | QuickRow::WifiChoose => None,
+        }
+    }
+
+    fn network_value(&self) -> QuickValue {
+        if !self.state.wifi {
+            return QuickValue::Off;
+        }
+        match self.wifi.state() {
+            WifiState::Off => QuickValue::Off,
+            WifiState::Connecting => QuickValue::Joining,
+            WifiState::Online => QuickValue::Online,
+            WifiState::NoSetup => QuickValue::NoSetup,
+            WifiState::NotFound => QuickValue::NotFound,
+            WifiState::NoAddress => QuickValue::NoAddress,
+            WifiState::Failed => QuickValue::Trouble,
         }
     }
 
@@ -1321,6 +1355,7 @@ impl App {
                 }
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
+            Phase::WifiSetup { .. } => self.wifi_setup_input(action),
             _ => {}
         }
     }
@@ -1356,7 +1391,8 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
-            QuickRow::Screen | QuickRow::Game => {
+            QuickRow::WifiChoose => self.open_wifi_setup(),
+            QuickRow::Screen | QuickRow::Game | QuickRow::Wifi => {
                 if let Some(row) = row.child_in(self.pure) {
                     self.phase = Phase::QuickMenu { row };
                 }
@@ -1370,7 +1406,96 @@ impl App {
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
+            | QuickRow::WifiPower
             | QuickRow::Rumble => {}
+            QuickRow::WifiNetwork => self.rejoin_wifi(),
+        }
+    }
+
+    fn open_wifi_setup(&mut self) {
+        self.wifi.scan();
+        self.phase = Phase::WifiSetup {
+            setup: WifiSetup::Scanning,
+        };
+    }
+
+    pub fn wifi_setup(&self) -> Option<&WifiSetup> {
+        match &self.phase {
+            Phase::WifiSetup { setup } => Some(setup),
+            _ => None,
+        }
+    }
+
+    pub fn set_wifi_setup_face(&mut self, face: TexId) {
+        self.wifi_setup_face = Some(face);
+    }
+
+    fn wifi_setup_input(&mut self, action: Action) {
+        let key = match action {
+            Action::GbaDown(Btn::Up) => SetupKey::Up,
+            Action::GbaDown(Btn::Down) => SetupKey::Down,
+            Action::GbaDown(Btn::Left) => SetupKey::Left,
+            Action::GbaDown(Btn::Right) => SetupKey::Right,
+            Action::GbaDown(Btn::A) => SetupKey::A,
+            Action::GbaDown(Btn::B) => SetupKey::B,
+            Action::GbaDown(Btn::X) => SetupKey::X,
+            Action::GbaDown(Btn::Y) => SetupKey::Y,
+            Action::GbaDown(Btn::Start) => SetupKey::Start,
+            Action::QuickMenu => {
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::WifiChoose,
+                };
+                return;
+            }
+            _ => return,
+        };
+        let Phase::WifiSetup { setup } = &mut self.phase else {
+            return;
+        };
+        match setup.press(key) {
+            SetupOutcome::Stay => {}
+            SetupOutcome::Rescan => self.open_wifi_setup(),
+            SetupOutcome::Back => {
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::WifiChoose,
+                }
+            }
+            SetupOutcome::Join { ssid, psk } => self.join_picked(&ssid, &psk),
+        }
+    }
+
+    fn join_picked(&mut self, ssid: &str, psk: &str) {
+        if let Some(root) = &self.root {
+            if let Err(e) = crate::wifi::remember(root, ssid, psk) {
+                eprintln!("slot: wifi: could not save {ssid}: {e}");
+            }
+        }
+        if !self.state.wifi {
+            self.state.wifi = true;
+            self.persist();
+        }
+        self.wifi.ask(WifiJob::On);
+        self.phase = Phase::QuickMenu {
+            row: QuickRow::WifiNetwork,
+        };
+    }
+
+    fn wifi_setup_timers(&mut self) {
+        if let Phase::WifiSetup {
+            setup: WifiSetup::Scanning,
+        } = self.phase
+        {
+            if let Some(found) = self.wifi.scanned() {
+                self.phase = Phase::WifiSetup {
+                    setup: WifiSetup::scanned(found),
+                };
+            }
+        }
+    }
+
+    fn rejoin_wifi(&mut self) {
+        if self.state.wifi && self.wifi.state() != WifiState::Connecting {
+            self.wifi.ask(WifiJob::On);
         }
     }
 
@@ -1411,7 +1536,18 @@ impl App {
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,
             QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => return,
+            QuickRow::WifiPower => {
+                s.wifi = !s.wifi;
+                let job = if s.wifi { WifiJob::On } else { WifiJob::Off };
+                self.wifi.ask(job);
+            }
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Wifi
+            | QuickRow::WifiChoose => return,
+            QuickRow::WifiNetwork => return self.rejoin_wifi(),
         }
         self.persist();
     }
@@ -1762,6 +1898,7 @@ impl App {
 
     fn timers(&mut self) {
         self.play_hold();
+        self.wifi_setup_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);
@@ -2049,6 +2186,10 @@ impl App {
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);
                 draw_sticker(self.sticker_face, out);
+                return;
+            }
+            Phase::WifiSetup { .. } => {
+                WifiSetup::draw(self.wifi_setup_face, out);
                 return;
             }
             Phase::Inserting { cart, resumed, .. } => {
@@ -2773,6 +2914,10 @@ impl App {
             role,
             since: self.now(),
         });
+    }
+
+    pub fn set_wifi_jobs(&mut self, jobs: Box<dyn WifiJobs>) {
+        self.wifi = jobs;
     }
 
     pub fn set_radio_jobs(&mut self, jobs: Box<dyn RadioJobs>) {

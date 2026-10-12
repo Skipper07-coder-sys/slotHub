@@ -55,6 +55,7 @@ pub struct Frontend {
     clocks: Clocks,
     about: AboutFace,
     quick_clock: QuickClock,
+    wifi_setup: WifiSetupFace,
 }
 
 #[derive(Default)]
@@ -63,6 +64,12 @@ struct RebuildFaces {
     count: Option<TexId>,
     count_size: (u32, u32),
     shown: Option<usize>,
+}
+
+#[derive(Default)]
+struct WifiSetupFace {
+    tex: Option<TexId>,
+    shown: Option<slot_ui::WifiSetup>,
 }
 
 #[derive(Default)]
@@ -136,6 +143,7 @@ impl Frontend {
             clocks: Clocks::default(),
             about: AboutFace::default(),
             quick_clock: QuickClock::default(),
+            wifi_setup: WifiSetupFace::default(),
         }
     }
 
@@ -352,6 +360,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
+        sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -722,6 +731,20 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
             app.set_battery_percent_face(id, w);
         }
     }
+}
+
+fn sync_wifi_setup(app: &mut App, compositor: &mut Compositor, state: &mut WifiSetupFace) {
+    let Some(setup) = app.wifi_setup() else {
+        state.shown = None;
+        return;
+    };
+    if state.shown.as_ref() == Some(setup) {
+        return;
+    }
+    let setup = setup.clone();
+    let tex = upload(compositor, &mut state.tex, setup.face());
+    app.set_wifi_setup_face(tex);
+    state.shown = Some(setup);
 }
 
 fn sync_quick_clock(app: &mut App, compositor: &mut Compositor, state: &mut QuickClock) {

@@ -20,10 +20,14 @@ pub enum QuickRow {
     Turbo,
     Rewind,
     GbPalettes,
+    Wifi,
+    WifiPower,
+    WifiNetwork,
+    WifiChoose,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 14] = [
+    pub const ALL: [QuickRow; 18] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -38,11 +42,16 @@ impl QuickRow {
         QuickRow::Turbo,
         QuickRow::Rewind,
         QuickRow::GbPalettes,
+        QuickRow::Wifi,
+        QuickRow::WifiPower,
+        QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
     ];
 
-    pub const MAIN: [QuickRow; 4] = [
+    pub const MAIN: [QuickRow; 5] = [
         QuickRow::Screen,
         QuickRow::Game,
+        QuickRow::Wifi,
         QuickRow::DateTime,
         QuickRow::About,
     ];
@@ -65,6 +74,12 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
+    pub const WIFI: [QuickRow; 3] = [
+        QuickRow::WifiPower,
+        QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
+    ];
+
     pub fn index(self) -> usize {
         self as usize
     }
@@ -79,6 +94,7 @@ impl QuickRow {
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
+            QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -100,6 +116,7 @@ impl QuickRow {
         match self.page()[0] {
             QuickRow::GbaShader => Some(QuickRow::Screen),
             QuickRow::FastForward => Some(QuickRow::Game),
+            QuickRow::WifiPower => Some(QuickRow::Wifi),
             _ => None,
         }
     }
@@ -111,6 +128,7 @@ impl QuickRow {
     pub fn child_in(self, pure: bool) -> Option<QuickRow> {
         match self {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
+            QuickRow::Wifi => Some(QuickRow::WIFI[0]),
             QuickRow::Game => Some(match pure {
                 true => QuickRow::GAME_PURE[0],
                 false => QuickRow::GAME[0],
@@ -146,13 +164,21 @@ impl QuickRow {
             QuickRow::Turbo => "Turbo Buttons",
             QuickRow::Rewind => "Rewind",
             QuickRow::GbPalettes => "GB Palettes",
+            QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
+            QuickRow::WifiNetwork => "Network",
+            QuickRow::WifiChoose => "Choose Network",
         }
     }
 
     pub fn opens(self) -> bool {
         matches!(
             self,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game
+            QuickRow::DateTime
+                | QuickRow::About
+                | QuickRow::Screen
+                | QuickRow::Game
+                | QuickRow::Wifi
+                | QuickRow::WifiChoose
         )
     }
 
@@ -187,10 +213,16 @@ pub enum QuickValue {
     Grid,
     Dot,
     Simpletex,
+    Joining,
+    Online,
+    NoSetup,
+    NotFound,
+    NoAddress,
+    Trouble,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 10] = [
+    pub const ALL: [QuickValue; 16] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -201,6 +233,12 @@ impl QuickValue {
         QuickValue::Grid,
         QuickValue::Dot,
         QuickValue::Simpletex,
+        QuickValue::Joining,
+        QuickValue::Online,
+        QuickValue::NoSetup,
+        QuickValue::NotFound,
+        QuickValue::NoAddress,
+        QuickValue::Trouble,
     ];
 
     pub fn index(self) -> usize {
@@ -219,6 +257,12 @@ impl QuickValue {
             QuickValue::Grid => "Grid",
             QuickValue::Dot => "Dot",
             QuickValue::Simpletex => "Simpletex",
+            QuickValue::Joining => "Joining...",
+            QuickValue::Online => "Connected",
+            QuickValue::NoSetup => "None Saved",
+            QuickValue::NotFound => "Not Found",
+            QuickValue::NoAddress => "No Address",
+            QuickValue::Trouble => "Failed",
         }
     }
 
