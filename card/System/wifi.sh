@@ -44,6 +44,31 @@ log() {
 	return 0
 }
 
+# One verb at a time: link play's resume runs in the background and could
+# otherwise bring the home network back up in the middle of a pause, or race
+# slot's own up into two supplicants. A lock whose holder is gone is taken over.
+LOCK="$RUN/slot-wifi.lock"
+LOCK_S="${AGS_WIFI_LOCK_S:-90}"
+
+lock() {
+	waited=0
+	while ! mkdir "$LOCK" 2>/dev/null; do
+		holder="$(cat "$LOCK/pid" 2>/dev/null)"
+		if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+			/bin/rm -rf "$LOCK"
+			continue
+		fi
+		if [ "$waited" -ge "$LOCK_S" ]; then
+			log "lock: still held by ${holder:-?} after ${LOCK_S}s, going ahead"
+			break
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+	echo $$ > "$LOCK/pid" 2>/dev/null
+	trap '/bin/rm -rf "$LOCK"' EXIT
+}
+
 hex() {
 	printf '%s' "$1" | od -An -tx1 | tr -d ' \n'
 }
@@ -314,6 +339,10 @@ wifi_scan() {
 	fi
 	return 0
 }
+
+case "${1:-}" in
+up | down | pause | resume | scan) lock ;;
+esac
 
 case "${1:-}" in
 up) wifi_up ;;

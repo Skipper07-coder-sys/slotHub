@@ -106,10 +106,14 @@ fetch_one() {
 	return 1
 }
 
+reachable() {
+	$CURL -fsS -o /dev/null --connect-timeout 10 --max-time 20 -I "$SERVER/" 2>/dev/null
+}
+
 fetch() {
 	mkdir -p "$RUN" || return 1
 	rm -f "$RUN"/names-*.txt
-	if ! $CURL -fsS -o /dev/null --connect-timeout 10 --max-time 20 -I "$SERVER/" 2>/dev/null; then
+	if ! reachable; then
 		log "no answer from $SERVER"
 		return 4
 	fi
@@ -139,6 +143,11 @@ fetch() {
 		mkdir -p "$SD/Labels/$dir"
 		if fetch_one "$dir" "$stem" "$SD/Labels/$dir/$stem.png"; then
 			found=$((found + 1))
+		elif ! reachable; then
+			# Wi-Fi went away mid-run: the rest would all read as Not Found.
+			log "lost $SERVER after $found found"
+			echo "done $found $missing"
+			return 4
 		else
 			missing=$((missing + 1))
 			log "$stem: no art found"
