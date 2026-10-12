@@ -1793,6 +1793,7 @@ impl App {
                 Action::GbaDown(Btn::B) | Action::Polaroids => self.close_polaroids(),
                 Action::GbaDown(Btn::X) => self.undo(self.now()),
                 Action::GbaDown(Btn::Y) => self.delete_selected(),
+                Action::GbaDown(Btn::Select) => self.label_from_selected(),
                 _ => {}
             },
             Phase::About if action == Action::GbaDown(Btn::B) || action == Action::QuickMenu => {
@@ -3972,6 +3973,46 @@ impl App {
         if p.is_empty() {
             self.close_polaroids();
         }
+    }
+
+    /// The selected photo becomes the cart's label, for games no artwork
+    /// covers: a romhack paused on its own title screen labels itself.
+    fn label_from_selected(&mut self) {
+        let thumb = self
+            .polaroids
+            .as_ref()
+            .and_then(|p| p.selected())
+            .map(|e| e.thumb.clone());
+        let (Some(thumb), Some(root), Some(stem)) = (thumb, self.root.clone(), self.seated())
+        else {
+            return;
+        };
+        let platform = self.platform;
+        let label = self
+            .shelves
+            .iter()
+            .flat_map(|(_, s)| &s.carts)
+            .find(|c| c.platform == platform && c.stem == stem)
+            .and_then(|c| c.label.clone())
+            .unwrap_or_else(|| {
+                root.join("Labels")
+                    .join(platform.dir_name())
+                    .join(format!("{stem}.png"))
+            });
+        let part = label.with_extension("png.part");
+        let written = label
+            .parent()
+            .map_or(Ok(()), std::fs::create_dir_all)
+            .and_then(|_| std::fs::copy(&thumb, &part))
+            .and_then(|_| std::fs::rename(&part, &label));
+        if let Err(e) = written {
+            eprintln!("slot: label {}: {e}", label.display());
+            let _ = std::fs::remove_file(&part);
+            self.hud.toast(Toast::CardUnwritable, self.now());
+            return;
+        }
+        self.rescan_due = true;
+        self.hud.toast(Toast::LabelSet, self.now());
     }
 
     fn undo_targets(&self, stamp: &str) -> bool {
