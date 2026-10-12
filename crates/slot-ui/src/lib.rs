@@ -22,6 +22,7 @@ mod shelf;
 mod shell;
 mod silhouette;
 mod slot_chrome;
+mod status_bar;
 mod sticker;
 pub mod text;
 mod toast;
@@ -81,6 +82,7 @@ pub use slot_chrome::{
     draw_empty_slot, draw_slot_name, ease, edge, housing, opening, recess, set_theme, SlotChrome,
     ALERT_PX, LIP_H, MOUTH_H, MOUTH_W,
 };
+pub use status_bar::{rate_face, rate_text, status_icon_face, StatusBar, StatusIcon};
 pub use sticker::{
     draw_sticker, head_rows, sticker_face, sticker_lines, StickerFields, COPYRIGHT, CREDITS, DC,
     HOME, ORIGIN, STICKER_H, STICKER_W,

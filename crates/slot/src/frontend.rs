@@ -9,11 +9,11 @@ use slot_store::format_stamp;
 use slot_ui::{
     arrows_hint_face, badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face,
     gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face, quick_caret_face,
-    quick_label_face, quick_legend_faces, quick_value_face, rebuild_count_face, rebuild_title_face,
-    set_clock_hint_face, socket_face, sticker_face, title_face, toast_face, wallpaper_face,
-    word_face, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow,
-    QuickValue, RebuildScreen, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX,
-    HUD_INK, LEGEND,
+    quick_label_face, quick_legend_faces, quick_value_face, rate_face, rate_text,
+    rebuild_count_face, rebuild_title_face, set_clock_hint_face, socket_face, status_icon_face,
+    sticker_face, title_face, toast_face, wallpaper_face, word_face, CartFace, GbShell, Icon,
+    LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StatusIcon,
+    StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -55,6 +55,7 @@ pub struct Frontend {
     clocks: Clocks,
     about: AboutFace,
     quick_live: Vec<QuickLive>,
+    status_rate: StatusRate,
     wifi_setup: WifiSetupFace,
     bt_setup: BtSetupFace,
 }
@@ -84,6 +85,12 @@ struct QuickLive {
     dim: Option<TexId>,
     lit: Option<TexId>,
     shown: String,
+}
+
+#[derive(Default)]
+struct StatusRate {
+    tex: Option<TexId>,
+    shown: Option<(String, String)>,
 }
 
 #[derive(Default)]
@@ -153,6 +160,7 @@ impl Frontend {
                 .iter()
                 .map(|_| QuickLive::default())
                 .collect(),
+            status_rate: StatusRate::default(),
             wifi_setup: WifiSetupFace::default(),
             bt_setup: BtSetupFace::default(),
         }
@@ -261,6 +269,11 @@ impl Frontend {
             .map(|v| v.map(&mut up))
             .collect();
         let carets = faces.quick_carets.map(&mut up);
+        let status = faces
+            .status_icons
+            .into_iter()
+            .map(|v| v.map(&mut up))
+            .collect();
         let legend = faces.quick_legend.map(|f| {
             let (tex, w, _) = up(f);
             (tex, w)
@@ -295,6 +308,7 @@ impl Frontend {
             carets,
             legend,
         });
+        app.set_status_faces(status);
         app.set_core_part_faces(sockets, chips, blank, shadow);
         app.set_core_legend_faces(core_legend);
         app.set_link_menu_faces(roles);
@@ -371,6 +385,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
+        sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
         sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
         sync_bt_setup(self.session.app_mut(), compositor, &mut self.bt_setup);
         sync_core_picker(
@@ -574,6 +589,7 @@ struct UiFaces {
     quick_values: Vec<[UndoFace; 2]>,
     quick_carets: [UndoFace; 2],
     quick_legend: [UndoFace; 4],
+    status_icons: Vec<[UndoFace; 2]>,
     sockets: Vec<CartFace>,
     chips: Vec<CartFace>,
     blank_chip: CartFace,
@@ -620,6 +636,10 @@ impl UiFaces {
                 .collect(),
             quick_carets: [false, true].map(quick_caret_face),
             quick_legend: quick_legend_faces(),
+            status_icons: StatusIcon::ALL
+                .iter()
+                .map(|i| [false, true].map(|lit| status_icon_face(*i, lit)))
+                .collect(),
             sockets: slot_store::Core::ALL
                 .iter()
                 .map(|c| socket_face(*c))
@@ -802,6 +822,21 @@ fn sync_quick_live(app: &mut App, compositor: &mut Compositor, states: &mut [Qui
         );
         state.shown = text;
     }
+}
+
+fn sync_status_rate(app: &mut App, compositor: &mut Compositor, state: &mut StatusRate) {
+    let Some((down, up)) = app.net_rate() else {
+        return;
+    };
+    let text = (rate_text(down), rate_text(up));
+    if state.shown.as_ref() == Some(&text) {
+        return;
+    }
+    let face = rate_face(down, up);
+    let size = (face.w, face.h);
+    let tex = upload(compositor, &mut state.tex, face);
+    app.set_status_rate_face(Some((tex, size.0, size.1)));
+    state.shown = Some(text);
 }
 
 fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace) {

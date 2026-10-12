@@ -353,7 +353,7 @@ const CARET_GAP: f32 = 14.0;
 const CARET_PX: f32 = 24.0;
 const LEGEND_Y: f32 = 427.0;
 pub const QUICK_SPLIT: f32 = LEGEND_Y - 2.0;
-const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
+pub(crate) const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
 
 pub fn quick_label_face(row: QuickRow) -> UndoFace {
     quick_text_face(row.label(), MENU_INK)
