@@ -21,6 +21,10 @@ echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/
 # the new one has run (update.sh swap).
 [ -f "$SYS/update.sh" ] && sh "$SYS/update.sh" swap
 
+# Three earlier runs are kept: a crash loop would otherwise overwrite the
+# log of the run that caused it.
+[ -f "$SD/slot.log.2" ] && mv -f "$SD/slot.log.2" "$SD/slot.log.3"
+[ -f "$SD/slot.log.1" ] && mv -f "$SD/slot.log.1" "$SD/slot.log.2"
 [ -f "$SD/slot.log" ] && mv -f "$SD/slot.log" "$SD/slot.log.1"
 log "exec $SYS/slot"
 

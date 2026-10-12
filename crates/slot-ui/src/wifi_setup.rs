@@ -3,23 +3,23 @@ use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 use crate::plate::{hint_face, UndoFace, HINT_H};
 use crate::text::{self, Layout};
 
-const INK: [u8; 3] = [0xf6, 0xf4, 0xef];
-const DIM: [u8; 3] = [0x9a, 0x9a, 0xa4];
-const PAPER: [u8; 3] = [0x1c, 0x1c, 0x21];
-const LIT: [u8; 3] = [0xf6, 0xf4, 0xef];
-const LIT_INK: [u8; 3] = [0x12, 0x12, 0x14];
+pub(crate) const INK: [u8; 3] = [0xf6, 0xf4, 0xef];
+pub(crate) const DIM: [u8; 3] = [0x9a, 0x9a, 0xa4];
+pub(crate) const PAPER: [u8; 3] = [0x1c, 0x1c, 0x21];
+pub(crate) const LIT: [u8; 3] = [0xf6, 0xf4, 0xef];
+pub(crate) const LIT_INK: [u8; 3] = [0x12, 0x12, 0x14];
 const BACKDROP: [f32; 4] = [0.06, 0.06, 0.07, 1.0];
 
-const TITLE_Y: u32 = 14;
-const TITLE_H: u32 = 44;
-const TITLE_PX: f32 = 28.0;
-const BODY_PX: f32 = 26.0;
-const EDGE: u32 = 30;
+pub(crate) const TITLE_Y: u32 = 14;
+pub(crate) const TITLE_H: u32 = 44;
+pub(crate) const TITLE_PX: f32 = 28.0;
+pub(crate) const BODY_PX: f32 = 26.0;
+pub(crate) const EDGE: u32 = 30;
 
-const ROW_Y: u32 = 70;
-const ROW_H: u32 = 44;
-const ROW_GAP: u32 = 6;
-const ROWS_SHOWN: usize = 7;
+pub(crate) const ROW_Y: u32 = 70;
+pub(crate) const ROW_H: u32 = 44;
+pub(crate) const ROW_GAP: u32 = 6;
+pub(crate) const ROWS_SHOWN: usize = 7;
 
 const FIELD_Y: u32 = 64;
 const FIELD_H: u32 = 48;
@@ -318,7 +318,7 @@ fn done(ssid: &str, typed: &str) -> SetupOutcome {
     }
 }
 
-fn bars(signal: i32) -> &'static str {
+pub(crate) fn bars(signal: i32) -> &'static str {
     match signal {
         s if s >= -55 => "||||",
         s if s >= -67 => "|||",
@@ -335,18 +335,18 @@ fn lock(secured: bool) -> &'static str {
     }
 }
 
-struct Canvas {
+pub(crate) struct Canvas {
     rgba: Vec<u8>,
 }
 
 impl Canvas {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Canvas {
             rgba: vec![0u8; (OUT_W * OUT_H * 4) as usize],
         }
     }
 
-    fn face(self) -> UndoFace {
+    pub(crate) fn face(self) -> UndoFace {
         UndoFace {
             rgba: self.rgba,
             w: OUT_W,
@@ -354,7 +354,7 @@ impl Canvas {
         }
     }
 
-    fn fill(&mut self, x: u32, y: u32, w: u32, h: u32, colour: [u8; 3]) {
+    pub(crate) fn fill(&mut self, x: u32, y: u32, w: u32, h: u32, colour: [u8; 3]) {
         for row in y..(y + h).min(OUT_H) {
             for col in x..(x + w).min(OUT_W) {
                 let i = ((row * OUT_W + col) * 4) as usize;
@@ -405,17 +405,25 @@ impl Canvas {
         (buf, w)
     }
 
-    fn text_centred(&mut self, s: &str, y: u32, h: u32, px: f32, colour: [u8; 3]) {
+    pub(crate) fn text_centred(&mut self, s: &str, y: u32, h: u32, px: f32, colour: [u8; 3]) {
         let (buf, w) = self.line(s, px, OUT_W - 2 * EDGE, h, colour);
         self.stamp(&buf, w, h, (OUT_W - w) / 2, y);
     }
 
-    fn text_left(&mut self, s: &str, x: u32, y: u32, max_w: u32, h: u32, ink: [u8; 3]) {
+    pub(crate) fn text_left(&mut self, s: &str, x: u32, y: u32, max_w: u32, h: u32, ink: [u8; 3]) {
         let (buf, w) = self.line(s, BODY_PX, max_w, h, ink);
         self.stamp(&buf, w, h, x, y);
     }
 
-    fn text_right(&mut self, s: &str, right: u32, y: u32, h: u32, px: f32, ink: [u8; 3]) -> u32 {
+    pub(crate) fn text_right(
+        &mut self,
+        s: &str,
+        right: u32,
+        y: u32,
+        h: u32,
+        px: f32,
+        ink: [u8; 3],
+    ) -> u32 {
         let (buf, w) = self.line(s, px, OUT_W, h, ink);
         self.stamp(&buf, w, h, right - w, y);
         w
@@ -446,7 +454,7 @@ impl Canvas {
         self.stamp(&buf, bw, KEY_H, x + (w - bw) / 2, y);
     }
 
-    fn hints(&mut self, hints: &[(&str, &str)]) {
+    pub(crate) fn hints(&mut self, hints: &[(&str, &str)]) {
         let faces: Vec<UndoFace> = hints.iter().map(|(k, l)| hint_face(k, l)).collect();
         let total: u32 = faces.iter().map(|f| f.w).sum::<u32>()
             + HINT_GAP * faces.len().saturating_sub(1) as u32;

@@ -83,6 +83,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Screen",
             "Gameplay",
             "Wi-Fi",
+            "Bluetooth",
             "Update",
             "Date & Time",
             "About"
@@ -108,6 +109,10 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Auto Save on Eject"
         ]
     );
+    assert_eq!(
+        QuickRow::BLUETOOTH.map(QuickRow::label),
+        ["Bluetooth", "Headphones"]
+    );
     let opens: Vec<QuickRow> = QuickRow::ALL.into_iter().filter(|r| r.opens()).collect();
     assert_eq!(
         opens,
@@ -116,6 +121,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::DateTime,
             QuickRow::About,
             QuickRow::Game,
+            QuickRow::Bluetooth,
+            QuickRow::BtHeadphones,
             QuickRow::Wifi,
             QuickRow::WifiChoose,
             QuickRow::Update,
@@ -132,6 +139,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
         &QuickRow::GAME[..],
+        &QuickRow::BLUETOOTH[..],
         &QuickRow::WIFI[..],
         &QuickRow::UPDATE[..],
     ] {
@@ -156,6 +164,12 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex",
+            "Connected",
+            "Not Connected",
+            "Starting...",
+            "Connecting...",
+            "Pairing Refused",
+            "Failed",
             "Joining...",
             "Connected",
             "None Saved",

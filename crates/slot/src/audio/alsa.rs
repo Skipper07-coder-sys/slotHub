@@ -2,11 +2,12 @@ use std::ffi::{c_char, c_int, c_uint, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libloading::Library;
 
 use super::ring::Ring;
+use super::route;
 use super::silence::Silence;
 use super::sink::{AudioError, AudioSink};
 
@@ -17,11 +18,17 @@ const CHANNELS: c_uint = 2;
 
 const LATENCY_US: c_uint = 40_000;
 
+const BT_LATENCY_US: c_uint = 200_000;
+
 const PERIOD_FRAMES: usize = 512;
 
 const RELEASE_AFTER: Duration = Duration::from_secs(3);
 
 const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
+
+const BT_RETRY_AFTER: Duration = Duration::from_secs(2);
+
+const BT_RETRIES: u32 = 15;
 
 type PcmOpen = unsafe extern "C" fn(*mut *mut c_void, *const c_char, c_int, c_int) -> c_int;
 type PcmSetParams =
@@ -79,8 +86,29 @@ impl Alsa {
     }
 
     fn open_pcm(&self, rate: u32) -> Result<*mut c_void, AudioError> {
+        if let Some(mac) = route::bluetooth_device() {
+            let names = route::pcm_names(&mac);
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            match self.open_from(&names, rate, BT_LATENCY_US) {
+                Ok(pcm) => {
+                    route::set_on_bluetooth(true);
+                    return Ok(pcm);
+                }
+                Err(e) => eprintln!("slot: audio: bluetooth: {e}"),
+            }
+        }
+        route::set_on_bluetooth(false);
+        self.open_from(&DEVICES, rate, LATENCY_US)
+    }
+
+    fn open_from(
+        &self,
+        devices: &[&str],
+        rate: u32,
+        latency_us: c_uint,
+    ) -> Result<*mut c_void, AudioError> {
         let mut last = AudioError::NoDevice;
-        for name in DEVICES {
+        for &name in devices {
             let Ok(cname) = CString::new(name) else {
                 continue;
             };
@@ -98,7 +126,7 @@ impl Alsa {
                     CHANNELS,
                     rate,
                     1,
-                    LATENCY_US,
+                    latency_us,
                 )
             };
             if err < 0 {
@@ -196,10 +224,14 @@ struct Playback {
     pcm: Option<*mut c_void>,
     rate: u32,
     failing: bool,
+    route: u32,
+    bt_missed: Option<Instant>,
+    bt_tries: u32,
 }
 
 fn play(ring: &Arc<Ring>, sample_rate: u32) -> Result<Playback, AudioError> {
     let alsa = Alsa::load()?;
+    let route = route::generation();
     let pcm = match alsa.open_pcm(sample_rate) {
         Ok(pcm) => Some(pcm),
         Err(e) => {
@@ -213,6 +245,9 @@ fn play(ring: &Arc<Ring>, sample_rate: u32) -> Result<Playback, AudioError> {
         pcm,
         rate: sample_rate,
         failing: pcm.is_none(),
+        route,
+        bt_missed: (route::wants_bluetooth() && !route::on_bluetooth()).then(Instant::now),
+        bt_tries: 0,
     })
 }
 
@@ -223,7 +258,11 @@ impl Playback {
         let mut silence = Silence::new(RELEASE_AFTER);
         while !stop.load(Ordering::Relaxed) {
             ring.fill(&mut buf);
-            let hold = silence.hear(&buf, span);
+            // Closing the PCM over Bluetooth ends the A2DP stream (this
+            // BlueALSA keeps nothing alive), and slot then reads the
+            // headphones as gone, so headphones get silence written to them.
+            let hold = silence.hear(&buf, span) || route::wants_bluetooth();
+            self.follow_route();
             match (self.pcm, hold) {
                 (Some(_), false) => {
                     self.release();
@@ -234,6 +273,7 @@ impl Playback {
                         eprintln!("slot: audio reopened at {:.1} ms", crate::boot_time::ms());
                         self.pcm = Some(pcm);
                         self.failing = false;
+                        self.note_bluetooth_miss();
                     }
                     Err(e) => {
                         if !self.failing {
@@ -247,12 +287,42 @@ impl Playback {
             match self.pcm {
                 Some(pcm) => {
                     if !self.write(pcm, &buf) {
-                        return;
+                        if !route::on_bluetooth() {
+                            return;
+                        }
+                        eprintln!("slot: audio: bluetooth output lost, falling back");
+                        self.release();
                     }
                 }
                 None => std::thread::sleep(span),
             }
         }
+    }
+
+    fn follow_route(&mut self) {
+        let now = route::generation();
+        if now != self.route {
+            self.route = now;
+            self.bt_tries = 0;
+            self.bt_missed = None;
+            if self.pcm.is_some() {
+                eprintln!("slot: audio: output moving");
+                self.release();
+            }
+            return;
+        }
+        let due = self
+            .bt_missed
+            .is_some_and(|at| at.elapsed() >= BT_RETRY_AFTER);
+        if due && route::wants_bluetooth() && self.bt_tries < BT_RETRIES {
+            self.bt_tries += 1;
+            self.bt_missed = None;
+            self.release();
+        }
+    }
+
+    fn note_bluetooth_miss(&mut self) {
+        self.bt_missed = (route::wants_bluetooth() && !route::on_bluetooth()).then(Instant::now);
     }
 
     fn write(&self, pcm: *mut c_void, buf: &[i16]) -> bool {
@@ -280,6 +350,7 @@ impl Playback {
     }
 
     fn release(&mut self) {
+        route::set_on_bluetooth(false);
         if let Some(pcm) = self.pcm.take() {
             unsafe {
                 (self.alsa.drop)(pcm);

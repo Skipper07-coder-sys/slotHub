@@ -56,6 +56,7 @@ pub struct Frontend {
     about: AboutFace,
     quick_live: Vec<QuickLive>,
     wifi_setup: WifiSetupFace,
+    bt_setup: BtSetupFace,
 }
 
 #[derive(Default)]
@@ -70,6 +71,12 @@ struct RebuildFaces {
 struct WifiSetupFace {
     tex: Option<TexId>,
     shown: Option<slot_ui::WifiSetup>,
+}
+
+#[derive(Default)]
+struct BtSetupFace {
+    tex: Option<TexId>,
+    shown: Option<slot_ui::BtSetup>,
 }
 
 #[derive(Default)]
@@ -147,6 +154,7 @@ impl Frontend {
                 .map(|_| QuickLive::default())
                 .collect(),
             wifi_setup: WifiSetupFace::default(),
+            bt_setup: BtSetupFace::default(),
         }
     }
 
@@ -364,6 +372,7 @@ impl Frontend {
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
         sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
+        sync_bt_setup(self.session.app_mut(), compositor, &mut self.bt_setup);
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -564,7 +573,7 @@ struct UiFaces {
     quick_labels: Vec<UndoFace>,
     quick_values: Vec<[UndoFace; 2]>,
     quick_carets: [UndoFace; 2],
-    quick_legend: [UndoFace; 3],
+    quick_legend: [UndoFace; 4],
     sockets: Vec<CartFace>,
     chips: Vec<CartFace>,
     blank_chip: CartFace,
@@ -750,12 +759,30 @@ fn sync_wifi_setup(app: &mut App, compositor: &mut Compositor, state: &mut WifiS
     state.shown = Some(setup);
 }
 
+fn sync_bt_setup(app: &mut App, compositor: &mut Compositor, state: &mut BtSetupFace) {
+    let Some(setup) = app.bt_setup() else {
+        state.shown = None;
+        return;
+    };
+    if state.shown.as_ref() == Some(setup) {
+        return;
+    }
+    let setup = setup.clone();
+    let tex = upload(compositor, &mut state.tex, setup.face());
+    app.set_bt_setup_face(tex);
+    state.shown = Some(setup);
+}
+
 fn sync_quick_live(app: &mut App, compositor: &mut Compositor, states: &mut [QuickLive]) {
     if app.quick_menu().is_none() {
         return;
     }
     for (row, state) in QuickRow::LIVE.iter().zip(states) {
         let Some(text) = app.quick_live_text(*row) else {
+            if !state.shown.is_empty() {
+                state.shown.clear();
+                app.clear_quick_live_faces(*row);
+            }
             continue;
         };
         if text == state.shown {
