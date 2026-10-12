@@ -59,6 +59,7 @@ const BATTERY_POLL_MS: Millis = 10_000;
 
 const CHARGE_POLL_MS: Millis = 1_000;
 const HEADPHONES_POLL_MS: Millis = 500;
+const ADB_POLL_MS: Millis = 5_000;
 
 const BATTERY_LOW: u8 = 20;
 
@@ -362,6 +363,7 @@ pub struct App {
     charge_at: Millis,
     headphones: bool,
     headphones_at: Millis,
+    adb_at: Millis,
     jack: bool,
     bt_connected: bool,
     battery: Option<Battery>,
@@ -507,6 +509,7 @@ impl App {
             charge_at: CHARGE_POLL_MS,
             headphones: false,
             headphones_at: 0,
+            adb_at: 0,
             jack: false,
             bt_connected: false,
             battery: None,
@@ -2290,6 +2293,12 @@ impl App {
                 let now = self.now();
                 self.hud
                     .show(HudKind::Volume, self.output_volume(), self.muted(), now);
+            }
+        }
+        if self.now() >= self.adb_at {
+            self.adb_at = self.now() + ADB_POLL_MS;
+            if let Some(power) = self.power.as_mut() {
+                power.relink_adb();
             }
         }
         if self.now() >= self.charge_at {

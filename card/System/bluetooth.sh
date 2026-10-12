@@ -27,11 +27,6 @@ SCAN_S="${AGS_BT_SCAN_S:-12}"
 PAIR_SCAN_S="${AGS_BT_PAIR_SCAN_S:-60}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
 STATUS_SEEN="${AGS_BT_STATUS_SEEN:-/tmp/slot-bt-status}"
-# BlueZ keeps its pairings here; on BaseOS that is RAM, so they are saved to
-# the card (FAT allows no ':' in names, hence a tar) and put back before
-# bluetoothd starts.
-STORE="${AGS_BT_STORE:-/var/lib/bluetooth}"
-BONDS="${AGS_BT_BONDS:-$SD/bluetooth-bonds.tar}"
 # A2DP volume (0-127) given to headphones that come up silent.
 VOLUME="${AGS_BT_VOLUME:-90}"
 
@@ -100,33 +95,11 @@ start_bluealsa() {
 	return 1
 }
 
-bonded_in_ram() {
-	[ -n "$(find "$STORE" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)" ]
-}
-
-# The pairings saved on the card go back into BlueZ's store whenever it is
-# empty, which it is after every boot: the AirPods kept the old link key and
-# refused every fresh pairing with it.
-restore_bonds() {
-	[ -f "$BONDS" ] || return 1
-	bonded_in_ram && return 1
-	mkdir -p "$STORE"
-	tar -xf "$BONDS" -C "$STORE" 2>>"$LOG" || { log "could not restore the pairings from $BONDS"; return 1; }
-	log "restored the saved pairings"
-}
-
-save_bonds() {
-	bonded_in_ram || return 0
-	tar -cf "$BONDS.new" -C "$STORE" . 2>>"$LOG" && mv -f "$BONDS.new" "$BONDS" && log "saved the pairings to the card"
-	return 0
-}
-
 up() {
 	rfkill unblock bluetooth 2>/dev/null
 	attached=0
 	attach || return 1
 	sh "$VENDOR" enable >> "$LOG" 2>&1
-	restore_bonds && attached=1
 	if [ "$attached" = 1 ] && "$SYSTEMCTL" is-active bluetooth >/dev/null 2>&1; then
 		"$SYSTEMCTL" restart bluetooth >> "$LOG" 2>&1
 	else
@@ -369,6 +342,13 @@ pair_with() {
 		log "pairing refused; forgot $1, put the headphones in pairing mode and try again"
 		return 4
 	fi
+	# No answer at all within the pairing window: the headphones were not
+	# listening for a new pairing (on the card the AirPods timed out twice
+	# outside pairing mode, then paired at once inside it).
+	if [ -z "$(printf '%s\n' "$out" | grep -i -e error -e failed)" ]; then
+		log "no answer from $1; put the headphones in pairing mode and try again"
+		return 4
+	fi
 	log "pairing failed"
 	return 1
 }
@@ -394,7 +374,6 @@ connect_to() {
 		return 1
 	fi
 	remember "$mac" "$name"
-	save_bonds
 	log "connected ${name:-$mac}"
 }
 
@@ -408,7 +387,6 @@ down() {
 	killall bluetoothctl 2>/dev/null
 	killall bluealsa 2>/dev/null
 	rm -f "$STATUS_SEEN"
-	save_bonds
 	log "bluetooth off"
 	return 0
 }
@@ -421,7 +399,6 @@ debug() {
 		echo "# show"; btctl 5 show
 		echo "# devices"; btctl 5 devices
 		echo "# devices Paired"; btctl 5 devices Paired
-		echo "# paired-devices"; btctl 5 paired-devices
 		for mac in $(known); do
 			echo "# info $mac"
 			btctl 5 info "$mac"
