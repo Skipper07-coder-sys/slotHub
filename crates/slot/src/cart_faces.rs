@@ -11,7 +11,11 @@ use slot_ui::{cart_face_with, CartFace};
 use crate::app::{App, FaceWant};
 use crate::label_cache::label_art;
 
-const WORKERS: usize = 2;
+/// Label decoding threads: three of the four cores, the shelf runs no game.
+const WORKERS: usize = 3;
+/// How long a shelf frame waits for faces coming on screen before it draws
+/// their plain colour instead: waiting longer is a stutter while scrolling.
+pub const FRAME_WAIT: std::time::Duration = std::time::Duration::from_millis(8);
 
 type Key = (usize, usize);
 
@@ -57,7 +61,9 @@ impl CartFaces {
         }
     }
 
-    pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
+    /// Places the faces built so far and waits up to `wait` for the ones on
+    /// screen; any still missing show their colour until they arrive.
+    pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor, wait: std::time::Duration) {
         self.free.extend(app.shed_faces());
         while let Ok((key, rom, face)) = self.built.try_recv() {
             self.place(app, compositor, key, &rom, face);
@@ -76,8 +82,9 @@ impl CartFaces {
         let began = std::time::Instant::now();
         let missing = waiting.len();
         while !waiting.is_empty() {
-            let Ok((key, rom, face)) = self.built.recv() else {
-                return;
+            let left = wait.saturating_sub(began.elapsed());
+            let Ok((key, rom, face)) = self.built.recv_timeout(left) else {
+                break;
             };
             waiting.retain(|k| *k != key);
             self.place(app, compositor, key, &rom, face);
@@ -86,8 +93,9 @@ impl CartFaces {
         let waited = began.elapsed();
         if waited > std::time::Duration::from_millis(4) {
             eprintln!(
-                "slot: shelf: waited {:.1} ms for {missing} cart faces",
-                waited.as_secs_f64() * 1e3
+                "slot: shelf: waited {:.1} ms for {missing} cart faces, {} drawn plain",
+                waited.as_secs_f64() * 1e3,
+                waiting.len()
             );
         }
     }

@@ -193,7 +193,10 @@ impl Frontend {
         Self::upload_paper(compositor);
         crate::boot_time::mark("paper");
         if self.rebuild.is_none() {
-            self.cart_faces.sync(self.session.app_mut(), compositor);
+            // The first shelf shows every face at once.
+            let wait = std::time::Duration::from_secs(5);
+            self.cart_faces
+                .sync(self.session.app_mut(), compositor, wait);
         }
         crate::boot_time::mark("cart faces");
         let (tx, rx) = std::sync::mpsc::channel();
@@ -381,7 +384,11 @@ impl Frontend {
             compositor.upload_game(&frame);
             crate::latency::taken();
         }
-        self.cart_faces.sync(self.session.app_mut(), compositor);
+        self.cart_faces.sync(
+            self.session.app_mut(),
+            compositor,
+            crate::cart_faces::FRAME_WAIT,
+        );
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
