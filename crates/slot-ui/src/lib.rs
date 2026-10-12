@@ -24,6 +24,7 @@ mod slot_chrome;
 mod sticker;
 pub mod text;
 mod toast;
+mod wifi_setup;
 
 pub use backdrop::{bezel_face, draw_backdrop, wallpaper_face};
 pub use barcode::{code39, CODE39_NARROW, CODE39_WIDE};
@@ -83,3 +84,4 @@ pub use sticker::{
     HOME, ORIGIN, STICKER_H, STICKER_W,
 };
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
+pub use wifi_setup::{SetupKey, SetupOutcome, WifiNetwork, WifiSetup, PSK_MAX, PSK_MIN};

@@ -23,10 +23,14 @@ pub enum QuickRow {
     Bluetooth,
     BtPower,
     BtHeadphones,
+    Wifi,
+    WifiPower,
+    WifiNetwork,
+    WifiChoose,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 17] = [
+    pub const ALL: [QuickRow; 21] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -44,12 +48,17 @@ impl QuickRow {
         QuickRow::Bluetooth,
         QuickRow::BtPower,
         QuickRow::BtHeadphones,
+        QuickRow::Wifi,
+        QuickRow::WifiPower,
+        QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
     ];
 
-    pub const MAIN: [QuickRow; 5] = [
+    pub const MAIN: [QuickRow; 6] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Bluetooth,
+        QuickRow::Wifi,
         QuickRow::DateTime,
         QuickRow::About,
     ];
@@ -73,6 +82,11 @@ impl QuickRow {
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
+    pub const WIFI: [QuickRow; 3] = [
+        QuickRow::WifiPower,
+        QuickRow::WifiNetwork,
+        QuickRow::WifiChoose,
+    ];
 
     pub fn index(self) -> usize {
         self as usize
@@ -89,6 +103,7 @@ impl QuickRow {
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
+            QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -111,6 +126,7 @@ impl QuickRow {
             QuickRow::GbaShader => Some(QuickRow::Screen),
             QuickRow::FastForward => Some(QuickRow::Game),
             QuickRow::BtPower => Some(QuickRow::Bluetooth),
+            QuickRow::WifiPower => Some(QuickRow::Wifi),
             _ => None,
         }
     }
@@ -123,6 +139,7 @@ impl QuickRow {
         match self {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
             QuickRow::Bluetooth => Some(QuickRow::BLUETOOTH[0]),
+            QuickRow::Wifi => Some(QuickRow::WIFI[0]),
             QuickRow::Game => Some(match pure {
                 true => QuickRow::GAME_PURE[0],
                 false => QuickRow::GAME[0],
@@ -160,6 +177,9 @@ impl QuickRow {
             QuickRow::GbPalettes => "GB Palettes",
             QuickRow::Bluetooth | QuickRow::BtPower => "Bluetooth",
             QuickRow::BtHeadphones => "Headphones",
+            QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
+            QuickRow::WifiNetwork => "Network",
+            QuickRow::WifiChoose => "Choose Network",
         }
     }
 
@@ -172,6 +192,8 @@ impl QuickRow {
                 | QuickRow::Game
                 | QuickRow::Bluetooth
                 | QuickRow::BtHeadphones
+                | QuickRow::Wifi
+                | QuickRow::WifiChoose
         )
     }
 
@@ -212,10 +234,16 @@ pub enum QuickValue {
     Searching,
     NoneFound,
     Failed,
+    Joining,
+    Online,
+    NoSetup,
+    NotFound,
+    NoAddress,
+    Trouble,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 16] = [
+    pub const ALL: [QuickValue; 22] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -232,6 +260,12 @@ impl QuickValue {
         QuickValue::Searching,
         QuickValue::NoneFound,
         QuickValue::Failed,
+        QuickValue::Joining,
+        QuickValue::Online,
+        QuickValue::NoSetup,
+        QuickValue::NotFound,
+        QuickValue::NoAddress,
+        QuickValue::Trouble,
     ];
 
     pub fn index(self) -> usize {
@@ -256,6 +290,12 @@ impl QuickValue {
             QuickValue::Searching => "Searching...",
             QuickValue::NoneFound => "None Found",
             QuickValue::Failed => "Failed",
+            QuickValue::Joining => "Joining...",
+            QuickValue::Online => "Connected",
+            QuickValue::NoSetup => "None Saved",
+            QuickValue::NotFound => "Not Found",
+            QuickValue::NoAddress => "No Address",
+            QuickValue::Trouble => "Failed",
         }
     }
 

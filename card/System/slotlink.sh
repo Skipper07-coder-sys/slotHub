@@ -21,10 +21,23 @@ WPA_CLI="${AGS_WPA_CLI:-wpa_cli}"
 IP="${AGS_IP:-ip}"
 UPTIME="${AGS_UPTIME:-/proc/uptime}"
 CTRL_DIR="${AGS_CTRL_DIR:-/var/run/wpa_supplicant}"
+HOME_WIFI="${AGS_HOME_WIFI:-$(dirname "$0")/wifi.sh}"
 
 trace() {
 	[ -n "$LINK_TRACE" ] || return 0
 	echo "slotlink: $(cut -d' ' -f1 "$UPTIME" 2>/dev/null) $*" >> "$LINK_TRACE" 2>/dev/null
+	return 0
+}
+
+# Link play needs the radio to itself: home Wi-Fi steps aside for it and comes
+# back, in the background, once the link is down.
+home_wifi() {
+	[ -f "$HOME_WIFI" ] || return 0
+	if [ "$1" = resume ]; then
+		sh "$HOME_WIFI" resume >/dev/null 2>&1 &
+	else
+		sh "$HOME_WIFI" "$1" >/dev/null 2>&1
+	fi
 	return 0
 }
 
@@ -96,6 +109,7 @@ link_wait() {
 link_host() {
 	echo "$$" > "$LINK_MARK"
 	trace "host: asked"
+	home_wifi pause
 	link_clear
 	wifi_up
 	wait_dev wlan1 4 || return 1
@@ -146,6 +160,7 @@ link_sta_conf() {
 link_join() {
 	echo "$$" > "$LINK_MARK"
 	trace "join: asked"
+	home_wifi pause
 	link_clear
 	wifi_up
 	[ -d "$NET/wlan0" ] || return 1
@@ -184,6 +199,7 @@ link_down() {
 	$IP link set wlan1 down 2>/dev/null || true
 	rmdir "$RUN/wpa_ap" 2>/dev/null || true
 	/bin/rm -f "$LINK_MARK"
+	home_wifi resume
 	return 0
 }
 

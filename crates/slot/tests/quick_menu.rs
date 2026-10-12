@@ -119,6 +119,7 @@ fn up_and_down_move_the_bar_and_wrap_at_the_ends() {
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Bluetooth,
+        QuickRow::Wifi,
         QuickRow::DateTime,
         QuickRow::About,
         QuickRow::Screen,
