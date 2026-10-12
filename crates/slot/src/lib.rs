@@ -11,6 +11,7 @@ pub mod core;
 pub mod core_picker;
 pub mod crash;
 pub mod drc;
+pub mod drive;
 pub mod emu;
 pub mod face_builder;
 pub mod frames;

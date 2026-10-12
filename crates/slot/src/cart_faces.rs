@@ -15,6 +15,10 @@ const WORKERS: usize = 2;
 
 type Key = (usize, usize);
 
+/// A finished face, with the ROM it was drawn for: a rescan can move another
+/// cart into its place while it is being drawn.
+type Built = (Key, PathBuf, CartFace);
+
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<(Key, Cart)>,
@@ -25,7 +29,7 @@ type Shared = Arc<(Mutex<Queue>, Condvar)>;
 
 pub struct CartFaces {
     queue: Shared,
-    built: Receiver<(Key, CartFace)>,
+    built: Receiver<Built>,
     pending: HashSet<Key>,
     asked: Vec<FaceWant>,
     free: Vec<TexId>,
@@ -55,8 +59,8 @@ impl CartFaces {
 
     pub fn sync(&mut self, app: &mut App, compositor: &mut Compositor) {
         self.free.extend(app.shed_faces());
-        while let Ok((key, face)) = self.built.try_recv() {
-            self.place(app, compositor, key, face);
+        while let Ok((key, rom, face)) = self.built.try_recv() {
+            self.place(app, compositor, key, &rom, face);
         }
         let wants = app.face_wants();
         if wants != self.asked {
@@ -70,11 +74,11 @@ impl CartFaces {
             .map(|w| (w.shelf, w.index))
             .collect();
         while !waiting.is_empty() {
-            let Ok((key, face)) = self.built.recv() else {
+            let Ok((key, rom, face)) = self.built.recv() else {
                 return;
             };
             waiting.retain(|k| *k != key);
-            self.place(app, compositor, key, face);
+            self.place(app, compositor, key, &rom, face);
         }
     }
 
@@ -97,9 +101,19 @@ impl CartFaces {
         wake.notify_all();
     }
 
-    fn place(&mut self, app: &mut App, compositor: &mut Compositor, key: Key, face: CartFace) {
+    fn place(
+        &mut self,
+        app: &mut App,
+        compositor: &mut Compositor,
+        key: Key,
+        rom: &Path,
+        face: CartFace,
+    ) {
         self.pending.remove(&key);
         self.asked.retain(|w| (w.shelf, w.index) != key);
+        if app.face_cart(key.0, key.1).map(|c| c.rom.as_path()) != Some(rom) {
+            return;
+        }
         let tex = match self.free.pop() {
             Some(tex) => {
                 compositor.update_texture(tex, face.w, face.h, &face.rgba);
@@ -119,7 +133,7 @@ impl Drop for CartFaces {
     }
 }
 
-fn work(queue: &Shared, outbox: &Sender<(Key, CartFace)>, root: &Path) {
+fn work(queue: &Shared, outbox: &Sender<Built>, root: &Path) {
     let (lock, wake) = &**queue;
     loop {
         let (key, cart) = {
@@ -135,7 +149,7 @@ fn work(queue: &Shared, outbox: &Sender<(Key, CartFace)>, root: &Path) {
             }
         };
         let face = cart_face_with(&cart, label_art(root, &cart));
-        if outbox.send((key, face)).is_err() {
+        if outbox.send((key, cart.rom.clone(), face)).is_err() {
             return;
         }
     }

@@ -66,6 +66,28 @@ jobs:
       - name: Build the tree
         run: task dist:device OUT="$OUT"
 
+      - name: Add File Browser for Wi-Fi Drive
+        env:
+          FB_VERSION: v2.32.0
+          GH_API: https://api.github.com/repos/filebrowser/filebrowser
+        run: |
+          set -eu
+          tmp="$(mktemp -d)"
+          base="https://github.com/filebrowser/filebrowser/releases/download/$FB_VERSION"
+          curl -fsSL -o "$tmp/linux-arm64-filebrowser.tar.gz" "$base/linux-arm64-filebrowser.tar.gz"
+          sums="$(curl -fsSL -H "Authorization: Bearer ${{ github.token }}" "$GH_API/releases/tags/$FB_VERSION" \
+            | grep -o '"browser_download_url": *"[^"]*checksums[^"]*"' | grep -o 'https://[^"]*' | head -n 1)"
+          curl -fsSL -o "$tmp/sums.txt" "$sums"
+          (cd "$tmp" && grep ' linux-arm64-filebrowser.tar.gz$' sums.txt | sha256sum -c -)
+          sha256sum "$tmp/linux-arm64-filebrowser.tar.gz"
+          tar -xzf "$tmp/linux-arm64-filebrowser.tar.gz" -C "$tmp" filebrowser
+          mkdir -p "$OUT/System/bin"
+          install -m 755 "$tmp/filebrowser" "$OUT/System/bin/filebrowser"
+          curl -fsSL -o "$OUT/System/licenses/filebrowser-LICENSE" \
+            "https://raw.githubusercontent.com/filebrowser/filebrowser/$FB_VERSION/LICENSE"
+          echo "filebrowser $FB_VERSION (Apache-2.0), https://github.com/filebrowser/filebrowser" \
+            > "$OUT/System/licenses/filebrowser.meta"
+
       - name: Stamp the release the tree came from
         run: echo "${RELEASE:-$GITHUB_REF_NAME}" > "$OUT/System/release"
 
@@ -77,6 +99,9 @@ jobs:
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
           test -x "$out/System/slot"
+          file "$out/System/bin/filebrowser" | grep -q aarch64
+          test -x "$out/System/bin/filebrowser"
+          test -f "$out/System/licenses/filebrowser-LICENSE"
           gpsp_src_sha="$(cat vendor/gpsp-src.sha)"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.tar.gz"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.meta"
