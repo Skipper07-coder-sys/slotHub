@@ -71,6 +71,7 @@ tasks:
       - sh card/test-led.sh
       - sh card/test-coresave.sh
       - sh card/test-wifi.sh
+      - sh card/test-update.sh
 
   core:
     desc: >-

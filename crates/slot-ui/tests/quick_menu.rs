@@ -79,7 +79,14 @@ fn the_fast_forward_row_offers_the_four_ceilings_the_card_can_hold() {
 fn the_rows_run_in_the_order_the_user_chose() {
     assert_eq!(
         QuickRow::MAIN.map(QuickRow::label),
-        ["Screen", "Gameplay", "Wi-Fi", "Date & Time", "About"]
+        [
+            "Screen",
+            "Gameplay",
+            "Wi-Fi",
+            "Update",
+            "Date & Time",
+            "About"
+        ]
     );
     assert_eq!(
         QuickRow::SCREEN.map(QuickRow::label),
@@ -110,18 +117,23 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::About,
             QuickRow::Game,
             QuickRow::Wifi,
-            QuickRow::WifiChoose
+            QuickRow::WifiChoose,
+            QuickRow::Update,
+            QuickRow::SlotUpdate,
+            QuickRow::BaseOsUpdate
         ]
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
         ["Wi-Fi", "Network", "Choose Network"]
     );
+    assert_eq!(QuickRow::UPDATE.map(QuickRow::label), ["slot", "BaseOS"]);
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
         &QuickRow::GAME[..],
         &QuickRow::WIFI[..],
+        &QuickRow::UPDATE[..],
     ] {
         for &row in page {
             assert_eq!(row.page(), page, "{row:?}");

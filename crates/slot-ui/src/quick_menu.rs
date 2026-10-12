@@ -24,10 +24,13 @@ pub enum QuickRow {
     WifiPower,
     WifiNetwork,
     WifiChoose,
+    Update,
+    SlotUpdate,
+    BaseOsUpdate,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 18] = [
+    pub const ALL: [QuickRow; 21] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -46,12 +49,16 @@ impl QuickRow {
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
         QuickRow::WifiChoose,
+        QuickRow::Update,
+        QuickRow::SlotUpdate,
+        QuickRow::BaseOsUpdate,
     ];
 
-    pub const MAIN: [QuickRow; 5] = [
+    pub const MAIN: [QuickRow; 6] = [
         QuickRow::Screen,
         QuickRow::Game,
         QuickRow::Wifi,
+        QuickRow::Update,
         QuickRow::DateTime,
         QuickRow::About,
     ];
@@ -74,6 +81,15 @@ impl QuickRow {
 
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
+    pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
+
+    /// Rows whose value is text the app sets as it changes.
+    pub const LIVE: [QuickRow; 3] = [
+        QuickRow::DateTime,
+        QuickRow::SlotUpdate,
+        QuickRow::BaseOsUpdate,
+    ];
+
     pub const WIFI: [QuickRow; 3] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
@@ -95,6 +111,7 @@ impl QuickRow {
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
+            QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -117,6 +134,7 @@ impl QuickRow {
             QuickRow::GbaShader => Some(QuickRow::Screen),
             QuickRow::FastForward => Some(QuickRow::Game),
             QuickRow::WifiPower => Some(QuickRow::Wifi),
+            QuickRow::SlotUpdate => Some(QuickRow::Update),
             _ => None,
         }
     }
@@ -129,6 +147,7 @@ impl QuickRow {
         match self {
             QuickRow::Screen => Some(QuickRow::SCREEN[0]),
             QuickRow::Wifi => Some(QuickRow::WIFI[0]),
+            QuickRow::Update => Some(QuickRow::UPDATE[0]),
             QuickRow::Game => Some(match pure {
                 true => QuickRow::GAME_PURE[0],
                 false => QuickRow::GAME[0],
@@ -167,6 +186,9 @@ impl QuickRow {
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
             QuickRow::WifiChoose => "Choose Network",
+            QuickRow::Update => "Update",
+            QuickRow::SlotUpdate => "slot",
+            QuickRow::BaseOsUpdate => "BaseOS",
         }
     }
 
@@ -179,6 +201,9 @@ impl QuickRow {
                 | QuickRow::Game
                 | QuickRow::Wifi
                 | QuickRow::WifiChoose
+                | QuickRow::Update
+                | QuickRow::SlotUpdate
+                | QuickRow::BaseOsUpdate
         )
     }
 
@@ -373,11 +398,15 @@ pub struct QuickMenuFaces {
     pub legend: [(TexId, u32); 3],
 }
 
+/// The dim and lit faces of a row whose text the frontend keeps current, one
+/// slot per row so the menu can look its own row up.
+pub type LiveFaces = [Option<[(TexId, u32, u32); 2]>; QuickRow::ALL.len()];
+
 pub struct QuickMenu<'a> {
     pub row: QuickRow,
     pub pure: bool,
     pub values: [Option<QuickValue>; QuickRow::ALL.len()],
-    pub clock: Option<[(TexId, u32, u32); 2]>,
+    pub live: &'a LiveFaces,
     pub faces: Option<&'a QuickMenuFaces>,
 }
 
@@ -408,7 +437,9 @@ impl QuickMenu<'_> {
                 push(out, tex, QUICK_EDGE - pad, y, w, h);
             }
             let value = match row {
-                QuickRow::DateTime => self.clock.map(|c| c[lit as usize]),
+                row if QuickRow::LIVE.contains(&row) => {
+                    self.live[row.index()].map(|c| c[lit as usize])
+                }
                 _ => self.values[row.index()]
                     .and_then(|v| faces.values.get(v.index()))
                     .map(|v| v[lit as usize]),

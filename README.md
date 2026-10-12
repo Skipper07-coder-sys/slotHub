@@ -155,6 +155,37 @@ Once connected, BaseOS's SSH server lets you copy games, labels and saves with a
 (Cyberduck, ForkLift, WinSCP or `scp`): log in as `root` at `rg34xxsp.local`. **Set your own SSH
 password first**: BaseOS uses `root` until you add `ssh_password=` to `baseos.conf`.
 
+# Updates
+
+With Wi-Fi connected, slot can fetch its own updates and BaseOS's. Open the quick menu and go to
+**Update**. The page checks GitHub and shows one row for each:
+
+| Row shows | What it means |
+|-----------|---------------|
+| Turn on Wi-Fi | Updates need a connection; switch Wi-Fi on first |
+| Checking... | Asking GitHub for the latest releases |
+| Get v1.8.0 | A newer release is out. Press **A** to download it |
+| v1.7.0 Up to Date | The installed release is the newest |
+| Downloading... | Fetching and checking the download |
+| Restart to Install | The download is on the card. Press **A** to restart and install it |
+| No Connection | GitHub could not be reached. Press **A** to check again |
+| Failed, Retry | The download did not complete or did not match its checksum. Press **A** to check again |
+
+**slot** downloads the release zip from this repository, checks it against the release's
+`SHA256SUMS`, and unpacks it next to `System` as `System.new`. The restart swaps it in and keeps
+the old one as `System.prev`. If the new slot fails to come up three starts in a row, the old one
+is put back on its own (the broken one is left as `System.failed` for a look). Once the new slot
+has run for a few seconds, `System.prev` is removed. Your games, saves and label cache stay where
+they are.
+
+**BaseOS** downloads the `.bosupd` payload for your device to the card root. BaseOS installs it on
+the next restart, into its spare system slot, and rolls back by itself if the new system does not
+boot.
+
+Pre-releases are opt-in: put a file named `update-channel` containing `beta` at the card root and
+the page offers the newest release of any kind. `slot-update.log` at the card root says what each
+download did.
+
 # AI Disclosure
 
 The Rust frontend was put together by Claude Opus. I reviewed everything that was
