@@ -112,7 +112,7 @@ name_of() {
 }
 
 # A link is not audio. BlueZ holds a media transport object
-# (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/fdN) exactly while an A2DP stream is
+# (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/sepN/fdN on this BlueZ) exactly while an A2DP stream is
 # configured, whatever BlueALSA version sits on top; this BlueALSA's
 # bluealsa-aplay has no -L to ask it instead.
 a2dp_ready() {
@@ -121,10 +121,10 @@ a2dp_ready() {
 		connected "$1"
 		return
 	fi
-	path="dev_$(printf '%s' "$1" | tr ':' '_')/fd"
+	dev="dev_$(printf '%s' "$1" | tr ':' '_')"
 	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
 		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
-		grep -q -i "$path"
+		grep -q -i -E "$dev(/sep[0-9]+)?/fd[0-9]"
 }
 
 # Pairing leaves AirPods linked with no A2DP: always ask for the profiles

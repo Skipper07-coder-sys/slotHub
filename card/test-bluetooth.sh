@@ -46,7 +46,7 @@ FAKE
 #!/bin/sh
 for d in "$TMP"/bt/*; do
 	grep -q "A2DP: yes" "\$d/info" 2>/dev/null || continue
-	echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/fd0\""
+	echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/sep1/fd0\""
 done
 FAKE
 	cat > "$TMP/bin/pidof" <<FAKE
