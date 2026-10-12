@@ -27,6 +27,10 @@ elif [ -f "$SYS/update.sh" ]; then
 	sh "$SYS/update.sh" swap
 fi
 
+# A run that crashed gets a bug report in Reports/ while its log is still
+# slot.log, and slot is told so it can say what happened.
+[ -f "$SYS/report.sh" ] && sh "$SYS/report.sh" crashcheck
+
 # Three earlier runs are kept: a crash loop would otherwise overwrite the
 # log of the run that caused it.
 [ -f "$SD/slot.log.2" ] && mv -f "$SD/slot.log.2" "$SD/slot.log.3"

@@ -73,6 +73,7 @@ tasks:
       - sh card/test-bluetooth.sh
       - sh card/test-wifi.sh
       - sh card/test-update.sh
+      - sh card/test-report.sh
 
   core:
     desc: >-
