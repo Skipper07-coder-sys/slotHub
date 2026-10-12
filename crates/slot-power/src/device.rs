@@ -495,6 +495,12 @@ impl Platform for DevicePlatform {
         if !gadget.is_file() {
             return false;
         }
+        // BaseOS's USB manager unbinds the gadget on any disconnect and never
+        // binds it again; a gadget that is still bound is left alone so a live
+        // adb session is not cut.
+        if fs::read_to_string(&gadget).is_ok_and(|udc| !udc.trim().is_empty()) {
+            return false;
+        }
         let Some(udc) = first_dir(&self.sysfs.join("class/udc"), |_| true) else {
             return false;
         };
@@ -503,7 +509,10 @@ impl Platform for DevicePlatform {
         };
         let _ = fs::write(&gadget, "\n");
         match fs::write(&gadget, &name) {
-            Ok(()) => true,
+            Ok(()) => {
+                eprintln!("slot: adb: bound the gadget to {name} again");
+                true
+            }
             Err(e) => {
                 eprintln!("slot: adb {}: {e}", gadget.display());
                 false
