@@ -30,7 +30,7 @@ use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
 use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
 use crate::persist::{self, Snapshot};
-use crate::update::{update_jobs, UpdateJob, UpdateJobs, UpdateState};
+use crate::update::{update_jobs, Installed, UpdateJob, UpdateJobs, UpdateState};
 use crate::video_mode::{self, VideoMode};
 use crate::wifi::{wifi_jobs, WifiJob, WifiJobs, WifiState};
 
@@ -371,6 +371,7 @@ pub struct App {
     wifi_setup_face: Option<TexId>,
     update: Box<dyn UpdateJobs>,
     update_confirm_at: Option<Millis>,
+    installed: Installed,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -414,6 +415,7 @@ impl App {
             wifi_setup_face: None,
             update: update_jobs(),
             update_confirm_at: None,
+            installed: Installed::default(),
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -529,6 +531,7 @@ impl App {
             app.wifi.ask(WifiJob::On);
         }
         app.update_confirm_at = Some(app.now() + UPDATE_CONFIRM_MS);
+        app.installed = Installed::read(root);
         if app.state.clock_set {
             app.start();
         } else {
@@ -734,31 +737,47 @@ impl App {
         }
     }
 
+    /// The Update page's row for slot or BaseOS: always the installed version,
+    /// as BaseOS's own menu shows it, followed by what can be done about it.
     fn update_text(&self, which: UpdateJob) -> String {
+        let state = self.update.state();
+        let local = match which {
+            UpdateJob::Slot => self.installed.slot.as_str(),
+            _ => self.installed.baseos.as_str(),
+        };
+        let checked = state.releases().map(|r| match which {
+            UpdateJob::Slot => r.slot_installed.as_str(),
+            _ => r.baseos_installed.as_str(),
+        });
+        let installed = [Some(local), checked]
+            .into_iter()
+            .flatten()
+            .find(|v| !v.is_empty() && *v != "unknown")
+            .unwrap_or("Unknown")
+            .to_string();
         if self.wifi.state() != WifiState::Online {
-            return "Turn on Wi-Fi".into();
+            return format!("{installed}, Wi-Fi Off");
         }
-        match self.update.state() {
-            UpdateState::Idle => "Check".into(),
-            UpdateState::Checking => "Checking...".into(),
-            UpdateState::Offline => "No Connection".into(),
+        match state {
+            UpdateState::Idle => installed,
+            UpdateState::Checking => format!("{installed}, Checking..."),
+            UpdateState::Offline => format!("{installed}, No Connection"),
             UpdateState::Checked(r) => {
-                let (installed, available) = match which {
-                    UpdateJob::Slot => (r.slot_installed.as_str(), r.slot_available()),
-                    _ => (r.baseos_installed.as_str(), r.baseos_available()),
+                let available = match which {
+                    UpdateJob::Slot => r.slot_available(),
+                    _ => r.baseos_available(),
                 };
                 match available {
-                    Some(v) => format!("Get {v}"),
-                    None if installed.is_empty() || installed == "unknown" => "Up to Date".into(),
+                    Some(v) => format!("{installed}, Get {v}"),
                     None => format!("{installed} Up to Date"),
                 }
             }
             UpdateState::Downloading(j) if j == which => "Downloading...".into(),
             UpdateState::Ready(j) if j == which => "Restart to Install".into(),
             UpdateState::Failed(j, _) if j == which => "Failed, Retry".into(),
-            UpdateState::Downloading(_) => "Busy".into(),
-            UpdateState::Ready(_) => "Restart First".into(),
-            UpdateState::Failed(..) => "Check".into(),
+            UpdateState::Downloading(_) => format!("{installed}, Busy"),
+            UpdateState::Ready(_) => format!("{installed}, Restart First"),
+            UpdateState::Failed(..) => installed,
         }
     }
 
