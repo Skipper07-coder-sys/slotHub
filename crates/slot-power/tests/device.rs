@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use slot_power::{motor_change, rumble_node, Battery, Charge, DevicePlatform, LedState, Platform};
+use slot_power::{
+    motor_change, pick_governor, rumble_node, Battery, Charge, CpuMode, DevicePlatform, LedState,
+    Platform,
+};
 use tempfile::TempDir;
 
 fn sysfs_with(max_brightness: &str, capacity: &str, status: Option<&str>) -> TempDir {
@@ -377,4 +380,104 @@ fn the_closest_mount_decides_not_the_root() {
 fn an_option_that_merely_mentions_ro_is_not_read_only() {
     let m = "/dev/x /mnt/card vfat rw,errors=remount-ro 0 0\n";
     assert!(!slot_power::read_only_in(m, Path::new("/mnt/card")));
+}
+
+const H700_GOVERNORS: &str =
+    "interactive conservative ondemand userspace powersave performance schedutil\n";
+
+fn governor(d: &TempDir) -> String {
+    fs::read_to_string(
+        d.path()
+            .join("devices/system/cpu/cpufreq/policy0/scaling_governor"),
+    )
+    .unwrap()
+    .trim()
+    .to_string()
+}
+
+#[test]
+fn each_cpu_mode_picks_a_governor_the_kernel_has() {
+    assert_eq!(
+        pick_governor(H700_GOVERNORS, CpuMode::Balanced),
+        Some("schedutil")
+    );
+    assert_eq!(
+        pick_governor(H700_GOVERNORS, CpuMode::Full),
+        Some("performance")
+    );
+    assert_eq!(
+        pick_governor(H700_GOVERNORS, CpuMode::Rest),
+        Some("powersave")
+    );
+    assert_eq!(
+        pick_governor("ondemand performance powersave", CpuMode::Balanced),
+        Some("ondemand")
+    );
+    assert_eq!(pick_governor("performance", CpuMode::Balanced), None);
+}
+
+#[test]
+fn the_cpu_mode_is_written_to_every_policy_once() {
+    let d = sysfs("255", "87");
+    let policy = d.path().join("devices/system/cpu/cpufreq/policy0");
+    fs::create_dir_all(&policy).unwrap();
+    fs::write(policy.join("scaling_available_governors"), H700_GOVERNORS).unwrap();
+    fs::write(policy.join("scaling_governor"), "performance\n").unwrap();
+    let mut p = platform(&d);
+    p.set_cpu_mode(CpuMode::Balanced);
+    assert_eq!(governor(&d), "schedutil");
+    fs::write(policy.join("scaling_governor"), "changed elsewhere\n").unwrap();
+    p.set_cpu_mode(CpuMode::Balanced);
+    assert_eq!(
+        governor(&d),
+        "changed elsewhere",
+        "an unchanged mode is not written again"
+    );
+    p.set_cpu_mode(CpuMode::Full);
+    assert_eq!(governor(&d), "performance");
+    p.set_cpu_mode(CpuMode::Rest);
+    assert_eq!(governor(&d), "powersave");
+}
+
+fn rtc(d: &TempDir, name: &str, wakeup: &str) -> PathBuf {
+    let rtc = d.path().join("class/rtc").join(name);
+    fs::create_dir_all(rtc.join("device/power")).unwrap();
+    fs::write(rtc.join("device/power/wakeup"), format!("{wakeup}\n")).unwrap();
+    fs::write(rtc.join("wakealarm"), "").unwrap();
+    rtc
+}
+
+#[test]
+fn sleep_sets_the_alarm_on_the_clock_that_can_wake_the_system() {
+    let d = sysfs("255", "87");
+    let board = rtc(&d, "rtc0", "disabled");
+    let soc = rtc(&d, "rtc1", "enabled");
+    fs::create_dir_all(d.path().join("power")).unwrap();
+    fs::write(d.path().join("power/state"), "").unwrap();
+    let mut p = platform(&d);
+    assert!(p.suspend(3600));
+    assert_eq!(
+        fs::read_to_string(d.path().join("power/state")).unwrap(),
+        "mem"
+    );
+    assert_eq!(fs::read_to_string(board.join("wakealarm")).unwrap(), "");
+    assert_eq!(
+        fs::read_to_string(soc.join("wakealarm")).unwrap(),
+        "0",
+        "the alarm is cleared once awake"
+    );
+}
+
+#[test]
+fn without_a_wake_clock_the_handheld_does_not_sleep() {
+    let d = sysfs("255", "87");
+    rtc(&d, "rtc0", "disabled");
+    fs::create_dir_all(d.path().join("power")).unwrap();
+    fs::write(d.path().join("power/state"), "").unwrap();
+    let mut p = platform(&d);
+    assert!(!p.suspend(3600));
+    assert_eq!(
+        fs::read_to_string(d.path().join("power/state")).unwrap(),
+        ""
+    );
 }

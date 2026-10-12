@@ -4,7 +4,7 @@
 # listed in wifi.conf at the card root and gets an address with udhcpc, whose
 # BaseOS script also publishes <hostname>.local. Verbs:
 #   up      join the first network in range, in the order wifi.conf lists them
-#   down    leave it and stop the supplicant and DHCP client
+#   down    leave it, stop the supplicant and DHCP client, and idle the radio
 #   pause   leave it for link play, remembering to come back
 #   resume  come back after link play, if pause left it
 #   status  print the IPv4 address, if there is one
@@ -237,6 +237,9 @@ wifi_up() {
 wifi_down() {
 	/bin/rm -f "$ON" "$PAUSED"
 	leave
+	# With the link down the radio idles in its power-save state; up, scan
+	# and link play each bring it back up themselves.
+	$IP link set wlan0 down 2>/dev/null || true
 	log "off"
 	return 0
 }

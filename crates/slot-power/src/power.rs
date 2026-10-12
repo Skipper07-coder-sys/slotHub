@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::{Battery, Charge, LedState, LidPolicy, Platform};
+use crate::{Battery, Charge, CpuMode, LedState, LidPolicy, Platform};
 
 pub struct Power {
     platform: Box<dyn Platform>,
@@ -48,6 +48,14 @@ impl Power {
 
     pub fn set_rumble(&mut self, strength: u16) {
         self.platform.set_rumble(strength);
+    }
+
+    pub fn set_cpu_mode(&mut self, mode: CpuMode) {
+        self.platform.set_cpu_mode(mode);
+    }
+
+    pub fn suspend(&mut self, wake_after_s: u32) -> bool {
+        self.platform.suspend(wake_after_s)
     }
 
     pub fn relink_adb(&mut self) -> bool {

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::{Battery, Charge, LedState, Platform};
+use crate::{Battery, Charge, CpuMode, LedState, Platform};
 
 const TOP_STEP: u32 = 9;
 
@@ -80,6 +80,8 @@ pub struct DevicePlatform {
     rtc: Option<PathBuf>,
     motor: Option<Motor>,
     led: Option<Led>,
+    /// The CPU mode last set, so a mode is written once, not every frame.
+    cpu: Option<CpuMode>,
 }
 
 impl DevicePlatform {
@@ -127,6 +129,7 @@ impl DevicePlatform {
             rtc,
             motor,
             led,
+            cpu: None,
         }
     }
 
@@ -520,6 +523,73 @@ impl Platform for DevicePlatform {
         }
     }
 
+    fn set_cpu_mode(&mut self, mode: CpuMode) {
+        if self.cpu == Some(mode) {
+            return;
+        }
+        self.cpu = Some(mode);
+        let policies = self.sysfs.join("devices/system/cpu/cpufreq");
+        let Ok(dirs) = fs::read_dir(&policies) else {
+            return;
+        };
+        for dir in dirs.flatten().map(|e| e.path()) {
+            if !dir.join("scaling_governor").is_file() {
+                continue;
+            }
+            let available =
+                fs::read_to_string(dir.join("scaling_available_governors")).unwrap_or_default();
+            let Some(governor) = pick_governor(&available, mode) else {
+                eprintln!(
+                    "slot: cpu: no governor for {mode:?} in [{}]",
+                    available.trim()
+                );
+                continue;
+            };
+            match fs::write(dir.join("scaling_governor"), governor) {
+                Ok(()) => eprintln!("slot: cpu: {mode:?}, {governor}"),
+                Err(e) => eprintln!("slot: cpu: could not set {governor}: {e}"),
+            }
+        }
+    }
+
+    fn suspend(&mut self, wake_after_s: u32) -> bool {
+        // Only a clock the kernel lets wake the system can end the sleep: on
+        // the H700 that is the SoC's own RTC, not the board's PCF8563.
+        let alarm = fs::read_dir(self.sysfs.join("class/rtc"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .find(|rtc| {
+                rtc.join("wakealarm").is_file()
+                    && fs::read_to_string(rtc.join("device/power/wakeup"))
+                        .is_ok_and(|w| w.trim() == "enabled")
+            })
+            .map(|rtc| rtc.join("wakealarm"));
+        let Some(alarm) = alarm else {
+            eprintln!("slot: sleep: no clock can wake the system");
+            return false;
+        };
+        let _ = fs::write(&alarm, "0");
+        if let Err(e) = fs::write(&alarm, format!("+{wake_after_s}")) {
+            eprintln!("slot: sleep: could not set the alarm: {e}");
+            return false;
+        }
+        self.breadcrumb("sleep: going to sleep in RAM");
+        let slept = fs::write(self.sysfs.join("power/state"), "mem");
+        let _ = fs::write(&alarm, "0");
+        match slept {
+            Ok(()) => {
+                self.breadcrumb("sleep: awake");
+                true
+            }
+            Err(e) => {
+                eprintln!("slot: sleep: the kernel would not sleep: {e}");
+                false
+            }
+        }
+    }
+
     fn set_rumble(&mut self, strength: u16) {
         let Some(motor) = &mut self.motor else {
             return;
@@ -528,6 +598,15 @@ impl Platform for DevicePlatform {
             motor.play(on);
         }
     }
+}
+
+/// The first of the mode's governors that the kernel offers.
+pub fn pick_governor(available: &str, mode: CpuMode) -> Option<&'static str> {
+    let offered: Vec<&str> = available.split_whitespace().collect();
+    mode.governors()
+        .iter()
+        .find(|g| offered.contains(g))
+        .copied()
 }
 
 pub fn read_only(path: &Path) -> bool {
