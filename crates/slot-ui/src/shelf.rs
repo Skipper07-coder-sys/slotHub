@@ -75,6 +75,22 @@ impl Shelf {
         }
     }
 
+    /// Swaps in a fresh scan, keeping the selected cart when it is still
+    /// there. Hands back the faces of the old carts.
+    pub fn restock(&mut self, carts: Vec<Cart>) -> Vec<TexId> {
+        let keep = self.carts.get(self.index).map(|c| c.stem.clone());
+        let dropped = self.faces.drain(..).flatten().collect();
+        self.shells = carts.iter().map(gb_shell_of).collect();
+        self.faces = vec![None; carts.len()];
+        self.carts = carts;
+        self.held = None;
+        let at = keep
+            .and_then(|stem| self.carts.iter().position(|c| c.stem == stem))
+            .unwrap_or_else(|| self.index.min(self.carts.len().saturating_sub(1)));
+        self.select(at);
+        dropped
+    }
+
     pub fn select(&mut self, i: usize) {
         self.index = i;
         self.scroll = i as f32;

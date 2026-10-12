@@ -22,9 +22,11 @@ use slot_ui::{
     SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
+use crate::art::{art_jobs, ArtJobs};
 use crate::audio::Sfx;
 use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
+use crate::drive::{drive_jobs, library_marks, DriveJobs, DriveState};
 use crate::link_kind::{link_carried, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
 use crate::link_screen::LinkSprites;
@@ -51,6 +53,7 @@ const VOLUME_STEP: u8 = 5;
 
 const AUTOSAVE_MS: Millis = 60_000;
 const CARD_CHECK_MS: Millis = 2_000;
+const DRIVE_LOOK_MS: Millis = 3_000;
 
 const BATTERY_CRITICAL: u8 = 5;
 
@@ -372,6 +375,17 @@ pub struct App {
     update: Box<dyn UpdateJobs>,
     update_confirm_at: Option<Millis>,
     installed: Installed,
+    drive: Box<dyn DriveJobs>,
+    art: Box<dyn ArtJobs>,
+    /// A fetch is under way; its end rescans the shelves for the new labels.
+    art_running: bool,
+    /// While the drive is on: what the library looked like at the last look,
+    /// and whether it has changed since the shelves were built.
+    drive_marks: Option<(std::collections::BTreeMap<String, u64>, bool)>,
+    drive_look_at: Millis,
+    /// Cart faces let go by a rescan, for the frontend to reuse.
+    dropped_faces: Vec<TexId>,
+    rescan_due: bool,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -416,6 +430,13 @@ impl App {
             update: update_jobs(),
             update_confirm_at: None,
             installed: Installed::default(),
+            drive: drive_jobs(),
+            art: art_jobs(),
+            art_running: false,
+            drive_marks: None,
+            drive_look_at: 0,
+            dropped_faces: Vec::new(),
+            rescan_due: false,
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -722,7 +743,9 @@ impl App {
             | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
-            | QuickRow::BaseOsUpdate => None,
+            | QuickRow::BaseOsUpdate
+            | QuickRow::WifiDrive
+            | QuickRow::WifiArt => None,
         }
     }
 
@@ -733,6 +756,8 @@ impl App {
             QuickRow::SlotUpdate => Some(self.update_text(UpdateJob::Slot)),
             QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
             QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
+            QuickRow::WifiDrive => Some(self.drive_text()),
+            QuickRow::WifiArt => Some(self.art_text()),
             _ => None,
         }
     }
@@ -815,6 +840,140 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    pub fn set_drive_jobs(&mut self, jobs: Box<dyn DriveJobs>) {
+        self.drive = jobs;
+    }
+
+    fn drive_text(&self) -> String {
+        match self.drive.state() {
+            DriveState::Off if self.wifi.state() != WifiState::Online => "Needs Wi-Fi".into(),
+            DriveState::Off => "Off".into(),
+            DriveState::Starting => "Starting...".into(),
+            DriveState::On => crate::drive::address(),
+            DriveState::Missing => "Not Installed".into(),
+            DriveState::Failed => "Failed".into(),
+        }
+    }
+
+    pub fn set_art_jobs(&mut self, jobs: Box<dyn ArtJobs>) {
+        self.art = jobs;
+    }
+
+    fn art_text(&self) -> String {
+        let state = self.art.state();
+        if !state.running() && self.wifi.state() != WifiState::Online {
+            return "Needs Wi-Fi".into();
+        }
+        if let Some(text) = state.text() {
+            return text;
+        }
+        match self.carts().filter(|c| c.label.is_none()).count() {
+            0 => "All Found".into(),
+            n => format!("Get {n}"),
+        }
+    }
+
+    fn fetch_art(&mut self) {
+        if self.art.state().running() || self.wifi.state() != WifiState::Online {
+            return;
+        }
+        self.art.fetch();
+        self.art_running = true;
+    }
+
+    fn art_timers(&mut self) {
+        if self.art_running && !self.art.state().running() {
+            self.art_running = false;
+            self.rescan_due = true;
+        }
+    }
+
+    fn toggle_drive(&mut self) {
+        match self.drive.state() {
+            DriveState::On | DriveState::Starting => self.stop_drive(),
+            _ if self.wifi.state() != WifiState::Online => {}
+            _ => {
+                self.drive.start();
+                self.drive_marks = self.root.as_deref().map(|r| (library_marks(r), false));
+                self.drive_look_at = self.now() + DRIVE_LOOK_MS;
+            }
+        }
+    }
+
+    fn stop_drive(&mut self) {
+        if matches!(self.drive.state(), DriveState::On | DriveState::Starting) {
+            self.drive.stop();
+        }
+        if let Some((marks, changed)) = self.drive_marks.take() {
+            let now = self.root.as_deref().map(library_marks);
+            self.rescan_due |= changed || now.is_some_and(|now| now != marks);
+        }
+        self.rescan_when_idle();
+    }
+
+    fn rescan_when_idle(&mut self) {
+        if self.rescan_due && matches!(self.phase, Phase::Shelf | Phase::QuickMenu { .. }) {
+            self.rescan_due = false;
+            self.rescan();
+        }
+    }
+
+    // While the drive is on, the shelves follow what lands on the card: once
+    // the library has stopped changing for one look, it is scanned again.
+    fn drive_timers(&mut self) {
+        self.rescan_when_idle();
+        if self.drive_marks.is_none() || self.now() < self.drive_look_at {
+            return;
+        }
+        self.drive_look_at = self.now() + DRIVE_LOOK_MS;
+        let serving = matches!(self.drive.state(), DriveState::On | DriveState::Starting);
+        if !serving || self.wifi.state() != WifiState::Online {
+            return self.stop_drive();
+        }
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let now = library_marks(&root);
+        let Some((marks, changed)) = self.drive_marks.as_mut() else {
+            return;
+        };
+        if now != *marks {
+            *marks = now;
+            *changed = true;
+            return;
+        }
+        if *changed {
+            *changed = false;
+            self.rescan_due = true;
+            self.rescan_when_idle();
+        }
+    }
+
+    /// Builds the shelves again from the card, keeping the cart in view.
+    pub fn rescan(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        let platform = self.shelves[self.shelf_at].0;
+        let fresh = shelves_of(scan(&root).unwrap_or_default());
+        let mut dropped = Vec::new();
+        for ((_, shelf), (_, new)) in self.shelves.iter_mut().zip(fresh) {
+            dropped.extend(shelf.restock(new.carts));
+        }
+        self.dropped_faces.extend(dropped);
+        let total: usize = self.shelves.iter().map(|(_, s)| s.carts.len()).sum();
+        eprintln!("slot: rescan: {total} carts");
+        let here = self.shelves.iter().position(|(p, _)| *p == platform);
+        self.shelf_at = here
+            .filter(|at| !self.shelves[*at].1.carts.is_empty())
+            .or_else(|| self.shelves.iter().position(|(_, s)| !s.carts.is_empty()))
+            .unwrap_or(0);
+        self.shelf_platform = slot_ui::Printed::default();
+        self.slot_letter = None;
+        self.shelf_named = None;
+        self.name_pending = true;
     }
 
     fn update_timers(&mut self) {
@@ -1001,7 +1160,7 @@ impl App {
 
     pub fn shed_faces(&mut self) -> Vec<TexId> {
         let neighbours = self.neighbour_shelves();
-        let mut shed = Vec::new();
+        let mut shed = std::mem::take(&mut self.dropped_faces);
         for (at, (_, shelf)) in self.shelves.iter_mut().enumerate() {
             let keep = if at == self.shelf_at {
                 shelf.around(FACE_KEEP)
@@ -1583,6 +1742,8 @@ impl App {
             | QuickRow::WifiPower
             | QuickRow::Rumble => {}
             QuickRow::WifiNetwork => self.rejoin_wifi(),
+            QuickRow::WifiDrive => self.toggle_drive(),
+            QuickRow::WifiArt => self.fetch_art(),
         }
     }
 
@@ -1821,6 +1982,9 @@ impl App {
                 s.wifi = !s.wifi;
                 let job = if s.wifi { WifiJob::On } else { WifiJob::Off };
                 self.wifi.ask(job);
+                if !s.wifi {
+                    self.stop_drive();
+                }
             }
             QuickRow::DateTime
             | QuickRow::About
@@ -1832,8 +1996,10 @@ impl App {
             | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
-            | QuickRow::BaseOsUpdate => return,
+            | QuickRow::BaseOsUpdate
+            | QuickRow::WifiArt => return,
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
+            QuickRow::WifiDrive => return self.toggle_drive(),
         }
         self.persist();
     }
@@ -2187,6 +2353,8 @@ impl App {
         self.wifi_setup_timers();
         self.bt_setup_timers();
         self.update_timers();
+        self.drive_timers();
+        self.art_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);

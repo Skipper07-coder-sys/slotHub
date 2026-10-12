@@ -30,10 +30,12 @@ pub enum QuickRow {
     Update,
     SlotUpdate,
     BaseOsUpdate,
+    WifiDrive,
+    WifiArt,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 24] = [
+    pub const ALL: [QuickRow; 26] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -58,6 +60,8 @@ impl QuickRow {
         QuickRow::Update,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
+        QuickRow::WifiDrive,
+        QuickRow::WifiArt,
     ];
 
     pub const MAIN: [QuickRow; 7] = [
@@ -92,17 +96,21 @@ impl QuickRow {
     pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 4] = [
+    pub const LIVE: [QuickRow; 6] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
         QuickRow::BtHeadphones,
+        QuickRow::WifiDrive,
+        QuickRow::WifiArt,
     ];
 
-    pub const WIFI: [QuickRow; 3] = [
+    pub const WIFI: [QuickRow; 5] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
         QuickRow::WifiChoose,
+        QuickRow::WifiDrive,
+        QuickRow::WifiArt,
     ];
 
     pub fn index(self) -> usize {
@@ -120,7 +128,11 @@ impl QuickRow {
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
-            QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiChoose => &QuickRow::WIFI,
+            QuickRow::WifiPower
+            | QuickRow::WifiNetwork
+            | QuickRow::WifiChoose
+            | QuickRow::WifiDrive
+            | QuickRow::WifiArt => &QuickRow::WIFI,
             QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
@@ -200,6 +212,8 @@ impl QuickRow {
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
             QuickRow::WifiChoose => "Choose Network",
+            QuickRow::WifiDrive => "Wi-Fi Drive",
+            QuickRow::WifiArt => "Game Artwork",
             QuickRow::Update => "Update",
             QuickRow::SlotUpdate => "slot",
             QuickRow::BaseOsUpdate => "BaseOS",
@@ -220,6 +234,7 @@ impl QuickRow {
                 | QuickRow::Update
                 | QuickRow::SlotUpdate
                 | QuickRow::BaseOsUpdate
+                | QuickRow::WifiArt
         )
     }
 
