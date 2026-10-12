@@ -88,22 +88,3 @@ fn deleting_someone_elses_state_leaves_the_offer_alone() {
         "an unrelated delete took the offer"
     );
 }
-
-#[test]
-fn select_makes_the_selected_photo_the_carts_label() {
-    let d = tmp_root_with_carts(&["Emerald"]);
-    let r = StateRing::new(d.path(), Platform::Gba, Core::Mgba, "Emerald");
-    r.push(&[0u8; 64], b"title", "2026-08-09_00-00-00").unwrap();
-    r.push(&[1u8; 64], b"later", "2026-08-09_00-00-01").unwrap();
-    let mut a = app_in_switcher(d.path(), "Emerald");
-    a.apply(Action::ShelfRight);
-    a.apply(Action::GbaDown(Btn::Select));
-    let label = d.path().join("Labels/GBA/Emerald.png");
-    assert_eq!(std::fs::read(&label).unwrap(), b"title");
-    assert_eq!(a.toast(), Some(slot_ui::Toast::LabelSet));
-    assert!(
-        matches!(a.phase(), Phase::Polaroids { .. }),
-        "the switcher stays open"
-    );
-    assert_eq!(r.list().unwrap().len(), 2, "no state was touched");
-}
