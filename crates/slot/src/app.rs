@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use slot_gfx::{OUT_H, OUT_W};
 use slot_input::{Action, Btn, MUTE_CHORD_MS};
-use slot_power::{Battery, Charge, LedState, LidPolicy, Power};
+use slot_power::{Battery, Charge, CpuMode, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
     format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette,
@@ -76,6 +76,13 @@ const PLAY_HOLD_MS: Millis = 500;
 const SHUTDOWN_SHOW_MS: Millis = 250;
 /// How long a freshly swapped System has to stay up before it is kept.
 const UPDATE_CONFIRM_MS: Millis = 15_000;
+/// After a wake that did not open the lid (the alarm, the power button with the
+/// lid still shut), how long slot stays up before the handheld sleeps again.
+/// The first sleep waits out the doze timeout instead: the lid cannot wake this
+/// handheld from RAM, only the power button can, so a short close only pauses.
+const SLEEP_AFTER_MS: Millis = 3_000;
+/// How long a shut lid sleeps before the handheld powers off instead.
+const SLEEP_LIMIT_S: i64 = 6 * 60 * 60;
 
 const POWER_MENU_PITCH: f32 = 44.0;
 const POWER_MENU_BAR_INSET: f32 = 4.0;
@@ -357,6 +364,13 @@ pub struct App {
     clock: f64,
     power: Option<Power>,
     dozed_at: Millis,
+    /// Wall-clock second the lid shut, which keeps counting through sleep.
+    dozed_wall: i64,
+    /// When the shut handheld next tries to sleep in RAM.
+    sleep_at: Millis,
+    /// It has slept in RAM since the lid shut; the short doze timeout no
+    /// longer applies.
+    slept: bool,
     woke_on_press: bool,
     autosave_at: Millis,
     pending_save: Option<std::thread::JoinHandle<()>>,
@@ -384,6 +398,8 @@ pub struct App {
     drive: Box<dyn DriveJobs>,
     art: Box<dyn ArtJobs>,
     diag: Box<dyn DiagJobs>,
+    /// Fast-forward is held or latched.
+    ff_on: bool,
     /// The run before crashed: this one starts on the shelf, not in a game.
     crashed: bool,
     /// The self-test after an update is under way; problems end in a toast.
@@ -444,6 +460,7 @@ impl App {
             drive: drive_jobs(),
             art: art_jobs(),
             diag: diag_jobs(),
+            ff_on: false,
             crashed: false,
             selftest_watch: false,
             art_running: false,
@@ -531,6 +548,9 @@ impl App {
             clock: 0.0,
             power: None,
             dozed_at: 0,
+            dozed_wall: 0,
+            sleep_at: 0,
+            slept: false,
             woke_on_press: false,
             autosave_at: AUTOSAVE_MS,
             pending_save: None,
@@ -1064,6 +1084,24 @@ impl App {
             if matches!(self.diag.state(), DiagState::Tested(n) if n > 0) {
                 self.hud.toast(Toast::SelfTestProblems, self.now());
             }
+        }
+    }
+
+    /// The CPU runs only as hard as needed: clocks follow the load, except in
+    /// fast-forward and link play, which hold the top clock, and with the lid
+    /// shut, which holds the lowest.
+    pub fn cpu_mode(&self) -> CpuMode {
+        match self.phase {
+            Phase::Doze { .. } => CpuMode::Rest,
+            _ if self.ff_on || self.link_active() => CpuMode::Full,
+            _ => CpuMode::Balanced,
+        }
+    }
+
+    fn cpu_timers(&mut self) {
+        let mode = self.cpu_mode();
+        if let Some(power) = &mut self.power {
+            power.set_cpu_mode(mode);
         }
     }
 
@@ -2322,6 +2360,7 @@ impl App {
     }
 
     pub fn set_ff(&mut self, ff: FfState) {
+        self.ff_on = ff != FfState::Off;
         self.hud.set_ff(ff);
     }
 
@@ -2537,6 +2576,7 @@ impl App {
         self.wifi_setup_timers();
         self.bt_setup_timers();
         self.update_timers();
+        self.cpu_timers();
         self.net_timers();
         self.drive_timers();
         self.art_timers();
@@ -2547,6 +2587,7 @@ impl App {
         if self.doze_expired() {
             self.on_doze_timeout();
         }
+        self.sleep_timers();
         if self.now() >= self.autosave_at {
             self.autosave();
         }
@@ -3383,6 +3424,13 @@ impl App {
         self.polaroids = None;
         self.phase = Phase::Doze { cart };
         self.dozed_at = self.now();
+        self.dozed_wall = self.utc_secs();
+        let pause = self
+            .power
+            .as_ref()
+            .map_or(SLEEP_AFTER_MS, |p| p.timeout().as_millis() as Millis);
+        self.sleep_at = self.now() + pause;
+        self.slept = false;
         self.radio.ask(RadioJob::Cool);
         if let Some(power) = &mut self.power {
             power.on_close();
@@ -3399,6 +3447,44 @@ impl App {
         };
         if let Some(power) = &mut self.power {
             power.on_open();
+        }
+    }
+
+    /// Work that must not be frozen mid-way by sleep.
+    fn keeps_awake(&self) -> bool {
+        self.link_active()
+            || self.powering_off
+            || matches!(self.update.state(), UpdateState::Downloading(..))
+            || matches!(self.drive.state(), DriveState::On | DriveState::Starting)
+            || self.art.state().running()
+            || self.diag.state().running()
+    }
+
+    /// With the lid shut, the handheld sleeps in RAM; a wake that leaves the
+    /// lid shut (the alarm, a stray interrupt) sleeps again, and after
+    /// `SLEEP_LIMIT_S` it powers off, the game's place already saved.
+    fn sleep_timers(&mut self) {
+        if !matches!(self.phase, Phase::Doze { .. }) || self.now() < self.sleep_at {
+            return;
+        }
+        if self.keeps_awake() {
+            return;
+        }
+        let left = SLEEP_LIMIT_S - (self.utc_secs() - self.dozed_wall);
+        if left <= 0 {
+            eprintln!("slot: sleep: the lid has been shut {SLEEP_LIMIT_S} s, powering off");
+            return self.begin_power_off();
+        }
+        self.settle_saves();
+        let Some(power) = &mut self.power else {
+            return;
+        };
+        if power.suspend(left as u32) {
+            self.slept = true;
+            self.sleep_at = self.now() + SLEEP_AFTER_MS;
+        } else {
+            // This handheld cannot sleep: the doze timeout powers it off.
+            self.sleep_at = Millis::MAX;
         }
     }
 
@@ -3842,8 +3928,13 @@ impl App {
         self.begin_power_off();
     }
 
+    /// The doze timeout powers off only a handheld that cannot sleep in RAM,
+    /// or one still busy with work sleep would freeze.
     fn doze_expired(&self) -> bool {
-        if self.link_active() {
+        if self.link_active() || self.slept {
+            return false;
+        }
+        if self.sleep_at != Millis::MAX && !self.keeps_awake() {
             return false;
         }
         let (Phase::Doze { .. }, Some(power)) = (&self.phase, &self.power) else {
