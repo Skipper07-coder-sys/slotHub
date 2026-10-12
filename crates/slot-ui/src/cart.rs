@@ -184,7 +184,10 @@ fn shadow(w: u32, h: u32, mask: &[u8]) -> CartFace {
 
 pub fn cart_face(cart: &Cart) -> CartFace {
     let (lw, lh) = label_size(cart);
-    let art = cart.label.as_deref().and_then(|p| art::cover(p, lw, lh));
+    let art = cart
+        .label
+        .as_deref()
+        .and_then(|p| art::fit_label(p, lw, lh));
     cart_face_with(cart, art)
 }
 
