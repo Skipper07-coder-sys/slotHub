@@ -307,6 +307,22 @@ fn relinking_adb_rebinds_the_gadget_to_the_controller() {
 }
 
 #[test]
+fn relinking_adb_leaves_a_bound_gadget_alone() {
+    let d = tempfile::tempdir().unwrap();
+    fs::create_dir_all(d.path().join("class/udc/5100000.udc-controller")).unwrap();
+    let gadget = d.path().join("kernel/config/usb_gadget/g1");
+    fs::create_dir_all(&gadget).unwrap();
+    fs::write(gadget.join("UDC"), "5100000.udc-controller\n").unwrap();
+
+    let mut p = DevicePlatform::probe(d.path(), PathBuf::from("/mnt/sdcard"));
+    assert!(!p.relink_adb(), "an unbind would cut the adb session");
+    assert_eq!(
+        fs::read_to_string(gadget.join("UDC")).unwrap(),
+        "5100000.udc-controller\n"
+    );
+}
+
+#[test]
 fn relinking_adb_without_a_gadget_does_nothing() {
     let d = tempfile::tempdir().unwrap();
     fs::create_dir_all(d.path().join("class/udc/5100000.udc-controller")).unwrap();
