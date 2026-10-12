@@ -1,4 +1,3 @@
-#[cfg(any(feature = "device", test))]
 use std::path::Path;
 #[cfg(any(feature = "device", test))]
 use std::process::Command;
@@ -64,6 +63,36 @@ impl Releases {
             && !self.baseos_url.is_empty()
             && self.baseos_latest != self.baseos_installed)
             .then_some(self.baseos_latest.as_str())
+    }
+}
+
+/// What is installed, read from the card and the system without going online:
+/// slot's release tag from System/release (stamped by the release build) and
+/// BaseOS's version from /etc/baseos-release. Empty when a file is missing.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Installed {
+    pub slot: String,
+    pub baseos: String,
+}
+
+impl Installed {
+    pub fn read(root: &Path) -> Installed {
+        let baseos_release = std::env::var_os("AGS_BASEOS_RELEASE")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "/etc/baseos-release".into());
+        Installed {
+            slot: std::fs::read_to_string(root.join("System/release"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default(),
+            baseos: std::fs::read_to_string(baseos_release)
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.strip_prefix("BASEOS_VERSION="))
+                        .map(|v| v.trim().trim_matches('"').to_string())
+                })
+                .unwrap_or_default(),
+        }
     }
 }
 
@@ -217,6 +246,19 @@ mod tests {
             .collect();
         let script = d.path().join("System/update.sh");
         assert_eq!(argv, ["/bin/sh", script.to_str().unwrap(), "slot"]);
+    }
+
+    #[test]
+    fn what_is_installed_is_read_from_the_card_without_going_online() {
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(
+            Installed::read(d.path()).slot,
+            "",
+            "no release file is no version"
+        );
+        std::fs::create_dir_all(d.path().join("System")).unwrap();
+        std::fs::write(d.path().join("System/release"), "v1.7.1\n").unwrap();
+        assert_eq!(Installed::read(d.path()).slot, "v1.7.1");
     }
 
     #[test]

@@ -67,6 +67,7 @@ fn booted(wifi: WifiState) -> (TempDir, App, FakeUpdate) {
         },
     )
     .expect("write slot.state");
+    std::fs::write(d.path().join("System/release"), "v1.7.0\n").expect("write release");
     let (mut a, _) = app_booting_at(d.path(), CLOCK_IS_SET);
     let fake = FakeUpdate::default();
     a.set_update_jobs(Box::new(fake.clone()));
@@ -105,12 +106,12 @@ fn opening_the_page_checks_for_updates_when_online() {
     assert_eq!(*fake.asked.lock().unwrap(), [UpdateJob::Check]);
     assert_eq!(
         a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
-        Some("Checking...")
+        Some("v1.7.0, Checking...")
     );
     *fake.state.lock().unwrap() = Some(checked("v1.8.0", "1.3.0"));
     assert_eq!(
         a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
-        Some("Get v1.8.0")
+        Some("v1.7.0, Get v1.8.0")
     );
     assert_eq!(
         a.quick_live_text(QuickRow::BaseOsUpdate).as_deref(),
@@ -126,7 +127,7 @@ fn with_wifi_off_the_page_asks_for_it_and_does_nothing_else() {
     assert!(fake.asked.lock().unwrap().is_empty());
     assert_eq!(
         a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
-        Some("Turn on Wi-Fi")
+        Some("v1.7.0, Wi-Fi Off")
     );
 }
 
@@ -144,9 +145,12 @@ fn a_on_an_available_release_downloads_it_and_then_restarts_to_install() {
         a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
         Some("Downloading...")
     );
-    assert_eq!(
-        a.quick_live_text(QuickRow::BaseOsUpdate).as_deref(),
-        Some("Busy")
+    // BaseOS's version comes from /etc/baseos-release, which a test host lacks.
+    assert!(
+        a.quick_live_text(QuickRow::BaseOsUpdate)
+            .unwrap()
+            .ends_with(", Busy"),
+        "BaseOS was not shown as waiting while slot downloads"
     );
     press(&mut a, Btn::A);
     assert_eq!(
@@ -175,7 +179,7 @@ fn an_up_to_date_release_is_not_downloaded_and_a_failure_offers_a_recheck() {
     assert_eq!(a.quick_menu(), Some(QuickRow::BaseOsUpdate));
     assert_eq!(
         a.quick_live_text(QuickRow::BaseOsUpdate).as_deref(),
-        Some("Get 1.4.0")
+        Some("1.3.0, Get 1.4.0")
     );
     press(&mut a, Btn::A);
     assert_eq!(
