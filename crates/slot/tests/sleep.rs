@@ -71,31 +71,42 @@ fn rig(root: &Path, slept_s: i64, can_sleep: bool) -> (App, Arc<AtomicU32>) {
 }
 
 #[test]
-fn a_shut_lid_sleeps_in_ram_after_a_moment_and_again_after_a_stray_wake() {
+fn a_short_close_only_pauses_and_the_lid_resumes_at_once() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     let (mut a, sleeps) = rig(d.path(), 60, true);
     a.apply(Action::LidClose);
-    a.tick_ms(1_000);
+    a.tick_ms(170_000);
     assert_eq!(
         sleeps.load(Ordering::Relaxed),
         0,
-        "not before the lid has settled"
-    );
-    a.tick_ms(3_500);
-    assert_eq!(sleeps.load(Ordering::Relaxed), 1);
-    a.tick_ms(4_000);
-    assert_eq!(sleeps.load(Ordering::Relaxed), 1, "a moment awake first");
-    a.tick_ms(7_000);
-    assert_eq!(sleeps.load(Ordering::Relaxed), 2, "the lid is still shut");
-    a.tick_ms(400_000);
-    assert!(
-        matches!(a.phase(), Phase::Doze { .. }),
-        "the short doze timeout no longer powers off once asleep"
+        "the lid cannot wake it from RAM, so a short close only pauses"
     );
     a.apply(Action::LidOpen);
     assert!(!matches!(a.phase(), Phase::Doze { .. }));
     a.tick_ms(500_000);
-    assert_eq!(sleeps.load(Ordering::Relaxed), 3, "awake with the lid open");
+    assert_eq!(sleeps.load(Ordering::Relaxed), 0, "awake with the lid open");
+}
+
+#[test]
+fn a_long_close_sleeps_in_ram_instead_of_powering_off_and_again_after_a_stray_wake() {
+    let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
+    let (mut a, sleeps) = rig(d.path(), 60, true);
+    a.apply(Action::LidClose);
+    a.tick_ms(181_000);
+    assert_eq!(sleeps.load(Ordering::Relaxed), 1);
+    assert!(
+        !a.powering_off(),
+        "the doze timeout sleeps rather than powers off"
+    );
+    a.tick_ms(182_000);
+    assert_eq!(sleeps.load(Ordering::Relaxed), 1, "a moment awake first");
+    a.tick_ms(185_000);
+    assert_eq!(sleeps.load(Ordering::Relaxed), 2, "the lid is still shut");
+    a.tick_ms(600_000);
+    assert!(matches!(a.phase(), Phase::Doze { .. }));
+    assert!(!a.powering_off());
+    a.apply(Action::LidOpen);
+    assert!(!matches!(a.phase(), Phase::Doze { .. }));
 }
 
 #[test]
@@ -103,9 +114,9 @@ fn a_lid_shut_for_hours_powers_off() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     let (mut a, sleeps) = rig(d.path(), 7 * 60 * 60, true);
     a.apply(Action::LidClose);
-    a.tick_ms(3_500);
+    a.tick_ms(181_000);
     assert_eq!(sleeps.load(Ordering::Relaxed), 1);
-    a.tick_ms(7_000);
+    a.tick_ms(185_000);
     assert_eq!(
         sleeps.load(Ordering::Relaxed),
         1,
@@ -119,10 +130,10 @@ fn a_handheld_that_cannot_sleep_keeps_the_doze_timeout() {
     let d = tmp_root_with_carts(&["Emerald", "Fusion"]);
     let (mut a, sleeps) = rig(d.path(), 60, false);
     a.apply(Action::LidClose);
-    a.tick_ms(3_500);
-    a.tick_ms(10_000);
-    assert_eq!(sleeps.load(Ordering::Relaxed), 0);
+    a.tick_ms(170_000);
     assert!(!a.powering_off());
     a.tick_ms(181_000);
+    a.tick_ms(181_100);
+    assert_eq!(sleeps.load(Ordering::Relaxed), 0);
     assert!(a.powering_off());
 }

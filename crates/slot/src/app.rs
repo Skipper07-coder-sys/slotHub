@@ -76,9 +76,10 @@ const PLAY_HOLD_MS: Millis = 500;
 const SHUTDOWN_SHOW_MS: Millis = 250;
 /// How long a freshly swapped System has to stay up before it is kept.
 const UPDATE_CONFIRM_MS: Millis = 15_000;
-/// With the lid shut, how long slot stays up (saves settle, the lid can open
-/// again at once) before the handheld sleeps in RAM, and after each wake that
-/// did not open the lid before it sleeps again.
+/// After a wake that did not open the lid (the alarm, the power button with the
+/// lid still shut), how long slot stays up before the handheld sleeps again.
+/// The first sleep waits out the doze timeout instead: the lid cannot wake this
+/// handheld from RAM, only the power button can, so a short close only pauses.
 const SLEEP_AFTER_MS: Millis = 3_000;
 /// How long a shut lid sleeps before the handheld powers off instead.
 const SLEEP_LIMIT_S: i64 = 6 * 60 * 60;
@@ -3424,7 +3425,11 @@ impl App {
         self.phase = Phase::Doze { cart };
         self.dozed_at = self.now();
         self.dozed_wall = self.utc_secs();
-        self.sleep_at = self.now() + SLEEP_AFTER_MS;
+        let pause = self
+            .power
+            .as_ref()
+            .map_or(SLEEP_AFTER_MS, |p| p.timeout().as_millis() as Millis);
+        self.sleep_at = self.now() + pause;
         self.slept = false;
         self.radio.ask(RadioJob::Cool);
         if let Some(power) = &mut self.power {
@@ -3923,8 +3928,13 @@ impl App {
         self.begin_power_off();
     }
 
+    /// The doze timeout powers off only a handheld that cannot sleep in RAM,
+    /// or one still busy with work sleep would freeze.
     fn doze_expired(&self) -> bool {
         if self.link_active() || self.slept {
+            return false;
+        }
+        if self.sleep_at != Millis::MAX && !self.keeps_awake() {
             return false;
         }
         let (Phase::Doze { .. }, Some(power)) = (&self.phase, &self.power) else {
