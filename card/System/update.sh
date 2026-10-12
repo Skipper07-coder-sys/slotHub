@@ -7,6 +7,8 @@
 #                    System as System.prev until the new one has run
 #   baseos           download the latest BaseOS payload to the card root; BaseOS
 #                    applies it on the next restart and rolls back by itself
+#                    Both print "progress P" (percent) lines while downloading,
+#                    then "verifying" and, for slot, "unpacking".
 #   swap             run by launch_frontend.sh before each start: move a
 #                    downloaded System.new into place, and put System.prev back
 #                    when a new System has failed to come up three times
@@ -17,9 +19,11 @@
 #   slot_latest=<tag>        the newest non-prerelease, or "" when none
 #   slot_zip=<url>           its h700 zip
 #   slot_sums=<url>          its SHA256SUMS
+#   slot_size=<bytes>        the zip's size, 0 when the reply has none
 #   baseos_installed=<ver>   from /etc/baseos-release
 #   baseos_latest=<ver>
 #   baseos_url=<url>         the .bosupd for this device
+#   baseos_size=<bytes>
 # Exit 0 on success, 4 when GitHub could not be reached, 5 when a download did
 # not match its checksum, 6 when the download could not be unpacked, 7 when
 # there is nothing to install, 1 otherwise.
@@ -47,8 +51,27 @@ fetch() {
 		-H 'Accept: application/vnd.github+json' -H 'User-Agent: slot-update' "$1"
 }
 
+file_size() {
+	[ -f "$1" ] || { echo 0; return 0; }
+	stat -c %s "$1" 2>/dev/null || wc -c < "$1"
+}
+
+# download URL FILE [BYTES]: with the expected size, prints "progress P" each
+# time the percent on the card moves while curl runs.
 download() {
-	$CURL -fsSL --connect-timeout 10 --max-time 900 -H 'User-Agent: slot-update' -o "$2" "$1"
+	$CURL -fsSL --connect-timeout 10 --max-time 900 -H 'User-Agent: slot-update' -o "$2" "$1" &
+	pid=$!
+	total="${3:-0}"
+	last=-1
+	while kill -0 "$pid" 2>/dev/null; do
+		if [ "$total" -gt 0 ] 2>/dev/null; then
+			pct=$(( $(file_size "$2") * 100 / total ))
+			[ "$pct" -gt 99 ] && pct=99
+			[ "$pct" -ne "$last" ] && echo "progress $pct" && last=$pct
+		fi
+		sleep 1
+	done
+	wait "$pid"
 }
 
 # The release API answers in JSON; BusyBox has no jq, so pick fields out with
@@ -59,6 +82,18 @@ json_field() {
 
 asset_url() {
 	sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -- "$1" | head -n 1
+}
+
+# An asset's "size" comes a few lines before its browser_download_url.
+asset_size() {
+	sed -n -e 's/^[[:space:]]*"size":[[:space:]]*\([0-9]*\).*/size \1/p' \
+		-e 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/url \1/p' |
+		while read -r kind value; do
+			case "$kind" in
+			size) size="$value" ;;
+			url) [ "$value" = "$1" ] && echo "${size:-0}" && break ;;
+			esac
+		done
 }
 
 # Pre-releases are opt-in: a file named update-channel at the card root
@@ -88,21 +123,26 @@ do_check() {
 		return 4
 	}
 	echo "slot_latest=$(printf '%s\n' "$reply" | json_field tag_name)"
-	echo "slot_zip=$(printf '%s\n' "$reply" | asset_url '-h700.zip')"
+	zip="$(printf '%s\n' "$reply" | asset_url '-h700.zip')"
+	echo "slot_zip=$zip"
 	echo "slot_sums=$(printf '%s\n' "$reply" | asset_url 'SHA256SUMS')"
+	size="$(printf '%s\n' "$reply" | asset_size "$zip")"
+	echo "slot_size=${size:-0}"
 	target="$(baseos_target)"
 	reply="$(latest_release "$BASEOS_REPO")" || {
 		log "check: could not reach GitHub for $BASEOS_REPO"
 		echo "baseos_latest="
 		echo "baseos_url="
+		echo "baseos_size=0"
 		return 0
 	}
 	echo "baseos_latest=$(printf '%s\n' "$reply" | json_field tag_name | sed 's/^v//')"
-	if [ -n "$target" ]; then
-		echo "baseos_url=$(printf '%s\n' "$reply" | asset_url "baseos-$target-.*\.bosupd")"
-	else
-		echo "baseos_url="
-	fi
+	url=""
+	[ -n "$target" ] && url="$(printf '%s\n' "$reply" | asset_url "baseos-$target-.*\.bosupd")"
+	echo "baseos_url=$url"
+	size=""
+	[ -n "$url" ] && size="$(printf '%s\n' "$reply" | asset_size "$url")"
+	echo "baseos_size=${size:-0}"
 	return 0
 }
 
@@ -123,14 +163,17 @@ do_slot() {
 	zip="$(printf '%s\n' "$check" | sed -n 's/^slot_zip=//p')"
 	sums="$(printf '%s\n' "$check" | sed -n 's/^slot_sums=//p')"
 	tag="$(printf '%s\n' "$check" | sed -n 's/^slot_latest=//p')"
+	size="$(printf '%s\n' "$check" | sed -n 's/^slot_size=//p')"
 	[ -n "$zip" ] && [ -n "$sums" ] || { log "slot: release $tag has no zip or checksums"; /bin/rm -rf "$tmp"; return 7; }
 	log "slot: downloading $tag"
-	download "$zip" "$tmp/slot.zip" && download "$sums" "$tmp/SHA256SUMS" || {
+	download "$zip" "$tmp/slot.zip" "$size" && download "$sums" "$tmp/SHA256SUMS" || {
 		log "slot: download failed"
 		/bin/rm -rf "$tmp"
 		return 4
 	}
+	echo verifying
 	verify "$tmp/slot.zip" "$zip" "$tmp/SHA256SUMS" || { rc=$?; /bin/rm -rf "$tmp"; return $rc; }
+	echo unpacking
 	$UNZIP -q "$tmp/slot.zip" -d "$tmp/tree" >/dev/null 2>&1 || {
 		log "slot: unzip failed"
 		/bin/rm -rf "$tmp"
@@ -150,13 +193,15 @@ do_baseos() {
 	check="$(do_check)" || return 4
 	url="$(printf '%s\n' "$check" | sed -n 's/^baseos_url=//p')"
 	ver="$(printf '%s\n' "$check" | sed -n 's/^baseos_latest=//p')"
+	size="$(printf '%s\n' "$check" | sed -n 's/^baseos_size=//p')"
 	[ -n "$url" ] || { log "baseos: no payload for this device"; return 7; }
 	name="$(basename "$url")"
 	/bin/rm -f "$SD"/baseos-*.bosupd "$SD"/baseos-*.bosupd.part
 	log "baseos: downloading $ver"
-	download "$url" "$SD/$name.part" || { log "baseos: download failed"; /bin/rm -f "$SD/$name.part"; return 4; }
+	download "$url" "$SD/$name.part" "$size" || { log "baseos: download failed"; /bin/rm -f "$SD/$name.part"; return 4; }
 	# The payload carries its own manifest hash, which BaseOS checks after
 	# writing the slot; here make sure the file at least arrived whole.
+	echo verifying
 	if ! tar -tf "$SD/$name.part" >/dev/null 2>&1; then
 		log "baseos: payload is not a readable archive"
 		/bin/rm -f "$SD/$name.part"
@@ -170,9 +215,30 @@ do_baseos() {
 
 TRIAL="$SYS/.trial"
 TRIES="${AGS_UPDATE_TRIES:-3}"
+LDSO="${AGS_LDSO:-/lib/ld-linux-aarch64.so.1}"
+
+# splash DIR MESSAGE: the slot in DIR draws MESSAGE over the boot logo; it
+# stays up until slot shows its first frame. Builds from before the splash
+# would start the whole frontend instead, so only a slot that knows the flag
+# is asked.
+splash() {
+	[ -f "$1/slot" ] && grep -q -- '--splash' "$1/slot" 2>/dev/null || return 0
+	if [ -x "$LDSO" ]; then
+		"$LDSO" "$1/slot" --splash "$2" >/dev/null 2>&1
+	else
+		"$1/slot" --splash "$2" >/dev/null 2>&1
+	fi
+	return 0
+}
+
+tag_of() {
+	tr -d ' \r\n' < "$1/release" 2>/dev/null
+}
 
 do_swap() {
 	if [ -f "$SD/System.new/slot" ]; then
+		tag="$(tag_of "$SD/System.new")"
+		splash "$SD/System.new" "Installing ${tag:-update}"
 		/bin/rm -rf "$SD/System.prev"
 		if mv "$SYS" "$SD/System.prev" && mv "$SD/System.new" "$SYS"; then
 			# The label cache is worth keeping; a fresh one takes a while to build.
@@ -191,6 +257,8 @@ do_swap() {
 	n="$(tr -d ' \r\n' < "$TRIAL" 2>/dev/null)"
 	n=$(( ${n:-0} + 1 ))
 	if [ "$n" -ge "$TRIES" ] && [ -f "$SD/System.prev/slot" ]; then
+		tag="$(tag_of "$SD/System.prev")"
+		splash "$SD/System.prev" "Restoring ${tag:-the last version}"
 		/bin/rm -rf "$SD/System.failed"
 		mv "$SYS" "$SD/System.failed" && mv "$SD/System.prev" "$SYS"
 		/bin/rm -f "$SYS/.trial"

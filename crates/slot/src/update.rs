@@ -96,6 +96,40 @@ impl Installed {
     }
 }
 
+/// How far a download has got, from the lines `update.sh slot|baseos` prints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Started,
+    Percent(u8),
+    Verifying,
+    Unpacking,
+}
+
+impl Step {
+    /// Follows one line of the script's output.
+    pub fn read(self, line: &str) -> Step {
+        let mut words = line.split_whitespace();
+        match words.next() {
+            Some("progress") => words
+                .next()
+                .and_then(|w| w.parse::<u8>().ok())
+                .map_or(self, |p| Step::Percent(p.min(100))),
+            Some("verifying") => Step::Verifying,
+            Some("unpacking") => Step::Unpacking,
+            _ => self,
+        }
+    }
+
+    pub fn text(self) -> String {
+        match self {
+            Step::Started => "Downloading...".into(),
+            Step::Percent(p) => format!("Downloading {p}%..."),
+            Step::Verifying => "Verifying...".into(),
+            Step::Unpacking => "Unpacking...".into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UpdateState {
     /// Nothing asked yet.
@@ -104,7 +138,7 @@ pub enum UpdateState {
     Checked(Releases),
     /// GitHub could not be reached.
     Offline,
-    Downloading(UpdateJob),
+    Downloading(UpdateJob, Step),
     /// The download is on the card; a restart installs it.
     Ready(UpdateJob),
     /// The download failed, with the script's exit code.
@@ -113,7 +147,7 @@ pub enum UpdateState {
 
 impl UpdateState {
     pub fn busy(&self) -> bool {
-        matches!(self, UpdateState::Checking | UpdateState::Downloading(_))
+        matches!(self, UpdateState::Checking | UpdateState::Downloading(..))
     }
 
     pub fn releases(&self) -> Option<&Releases> {
@@ -160,6 +194,31 @@ fn root() -> std::ffi::OsString {
     std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into())
 }
 
+/// Runs a download, following its progress lines into the shared state.
+#[cfg(feature = "device")]
+fn download(root: &Path, job: UpdateJob) -> Option<i32> {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    let mut child = match update_command(root, job.arg())
+        .stdout(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(e) => {
+            eprintln!("slot: update {}: could not start: {e}", job.arg());
+            return None;
+        }
+    };
+    if let Some(out) = child.stdout.take() {
+        let mut step = Step::Started;
+        for line in BufReader::new(out).lines().map_while(Result::ok) {
+            step = step.read(&line);
+            store(UpdateState::Downloading(job, step));
+        }
+    }
+    child.wait().ok().and_then(|s| s.code())
+}
+
 #[cfg(feature = "device")]
 fn queue() -> &'static Sender<UpdateJob> {
     static Q: OnceLock<Sender<UpdateJob>> = OnceLock::new();
@@ -180,10 +239,7 @@ fn queue() -> &'static Sender<UpdateJob> {
                             }
                         }
                         UpdateJob::Slot | UpdateJob::BaseOs => {
-                            let exit = update_command(Path::new(&root), job.arg())
-                                .status()
-                                .ok()
-                                .and_then(|s| s.code());
+                            let exit = download(Path::new(&root), job);
                             match exit {
                                 Some(0) => UpdateState::Ready(job),
                                 _ => UpdateState::Failed(job, exit),
@@ -204,7 +260,7 @@ impl UpdateJobs for UpdateQueue {
     fn ask(&mut self, job: UpdateJob) {
         store(match job {
             UpdateJob::Check => UpdateState::Checking,
-            _ => UpdateState::Downloading(job),
+            _ => UpdateState::Downloading(job, Step::Started),
         });
         let _ = queue().send(job);
     }
@@ -259,6 +315,20 @@ mod tests {
         std::fs::create_dir_all(d.path().join("System")).unwrap();
         std::fs::write(d.path().join("System/release"), "v1.7.1\n").unwrap();
         assert_eq!(Installed::read(d.path()).slot, "v1.7.1");
+    }
+
+    #[test]
+    fn a_download_reads_as_percent_then_verifying_then_unpacking() {
+        let mut step = Step::Started;
+        assert_eq!(step.text(), "Downloading...");
+        step = step.read("progress 42");
+        assert_eq!(step.text(), "Downloading 42%...");
+        step = step.read("some curl noise");
+        assert_eq!(step, Step::Percent(42), "an unknown line changed the step");
+        step = step.read("progress x");
+        assert_eq!(step, Step::Percent(42));
+        assert_eq!(step.read("verifying").text(), "Verifying...");
+        assert_eq!(step.read("unpacking").text(), "Unpacking...");
     }
 
     #[test]

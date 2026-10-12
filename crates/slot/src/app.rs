@@ -831,10 +831,10 @@ impl App {
                     None => format!("{installed} Up to Date"),
                 }
             }
-            UpdateState::Downloading(j) if j == which => "Downloading...".into(),
+            UpdateState::Downloading(j, step) if j == which => step.text(),
             UpdateState::Ready(j) if j == which => "Restart to Install".into(),
             UpdateState::Failed(j, _) if j == which => "Failed, Retry".into(),
-            UpdateState::Downloading(_) => format!("{installed}, Busy"),
+            UpdateState::Downloading(..) => format!("{installed}, Busy"),
             UpdateState::Ready(_) => format!("{installed}, Restart First"),
             UpdateState::Failed(..) => installed,
         }

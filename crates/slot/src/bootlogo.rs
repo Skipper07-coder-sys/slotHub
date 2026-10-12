@@ -88,7 +88,7 @@ pub fn encode(img: &Bmp) -> Vec<u8> {
     out
 }
 
-fn turned(img: &Bmp) -> Bmp {
+pub(crate) fn turned(img: &Bmp) -> Bmp {
     let (w, h) = (img.height, img.width);
     let mut rgb = vec![[0; 3]; w * h];
     for y in 0..img.height {
