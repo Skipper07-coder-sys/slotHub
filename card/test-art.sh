@@ -125,6 +125,36 @@ out="$(SLOT_ROOT="$TMP/card" AGS_CURL="$TMP/bin/curl" AGS_ART_SERVER="http://art
 	AGS_ART_SERIALS="http://art/serials.dat" sh "$SCRIPT" fetch)" || true
 grep -qx fr-logo "$L/GBA/Radical Red v4.1.png" 2>/dev/null || fail "romhack did not get its base game's logo: $out"
 
+# With a SteamGridDB key, a hack the libretro names miss gets its fan-made
+# logo before its base game's.
+mkdir -p "$TMP/card/Config" "$TMP/server/sgdb/search/autocomplete" "$TMP/server/sgdb/logos/game/4242?mimes=image"
+echo "key = abc123" > "$TMP/card/Config/steamgriddb.conf"
+echo '{"success":true,"data":[{"types":["steam"],"id":7,"name":"Pok\u00e9mon Pinball"},{"types":[],"id":4242,"name":"Pok\u00e9mon Unbound"}]}' \
+	> "$TMP/server/sgdb/search/autocomplete/Pokemon Unbound"
+echo '{"success":true,"data":[{"id":1,"score":3,"url":"http:\/\/art\/cdn\/unbound.png"}]}' \
+	> "$TMP/server/sgdb/logos/game/4242?mimes=image/png"
+mkdir -p "$TMP/server/cdn"
+echo fan-logo > "$TMP/server/cdn/unbound.png"
+{ head -c 172 /dev/zero; printf BPRE; head -c 20 /dev/zero; } > "$TMP/card/Games/GBA/Pokemon Unbound (v2.1.1.1).gba"
+out="$(SLOT_ROOT="$TMP/card" AGS_CURL="$TMP/bin/curl" AGS_ART_SERVER="http://art" AGS_ART_RUN="$TMP/run" \
+	AGS_ART_SERIALS="http://art/serials.dat" AGS_ART_SGDB="http://art/sgdb" sh "$SCRIPT" fetch)" || true
+grep -qx fan-logo "$L/GBA/Pokemon Unbound (v2.1.1.1).png" 2>/dev/null \
+	|| fail "hack did not get its SteamGridDB logo: $out $(cat "$TMP/run/art.log" 2>/dev/null)"
+grep -q "Authorization: Bearer abc123" "$TMP/curl.log" || fail "the key was not sent"
+
+# A bare name that would find the wrong games is searched as a Pokemon hack
+# when its header says POKEMON, and every word must be in the hit's name.
+echo '{"success":true,"data":[{"id":9,"name":"Extended Stay"}]}' > "$TMP/server/sgdb/search/autocomplete/extended"
+echo '{"success":true,"data":[{"id":55,"name":"Pok\u00e9mon Fire Red Extended"}]}' \
+	> "$TMP/server/sgdb/search/autocomplete/Pokemon extended"
+mkdir -p "$TMP/server/sgdb/logos/game/55?mimes=image"
+echo '{"data":[{"url":"http:\/\/art\/cdn\/ext.png","thumb":"x"}]}' > "$TMP/server/sgdb/logos/game/55?mimes=image/png"
+echo ext-logo > "$TMP/server/cdn/ext.png"
+{ head -c 160 /dev/zero; printf 'POKEMON FIRE'; printf BPRE; head -c 20 /dev/zero; } > "$TMP/card/Games/GBA/extended v3.5.6.gba"
+out="$(SLOT_ROOT="$TMP/card" AGS_CURL="$TMP/bin/curl" AGS_ART_SERVER="http://art" AGS_ART_RUN="$TMP/run" \
+	AGS_ART_SERIALS="http://art/serials.dat" AGS_ART_SGDB="http://art/sgdb" sh "$SCRIPT" fetch)" || true
+grep -qx ext-logo "$L/GBA/extended v3.5.6.png" 2>/dev/null || fail "Pokemon retry did not find the hack: $out"
+
 FAKE_OFFLINE=1 run fetch > /dev/null && rc=0 || rc=$?
 [ "$rc" = 4 ] || fail "offline fetch exited $rc, want 4"
 

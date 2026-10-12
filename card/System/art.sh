@@ -9,7 +9,9 @@
 # the server's list of names. A GBA ROM that matches neither, a romhack or a
 # file renamed by hand, is looked up by the game code in its header (romhacks
 # keep their base game's), through libretro-database's serial list, and gets
-# that game's art. Labels land in Labels/<GBA|GB|GBC>/<rom>.png,
+# that game's art. With a SteamGridDB API key in Config/steamgriddb.conf,
+# a game the libretro names miss gets a fan-made logo from SteamGridDB first,
+# which is where romhacks have theirs. Labels land in Labels/<GBA|GB|GBC>/<rom>.png,
 # where slot looks for them. Verb:
 #   fetch   prints "games N" first, "progress K N" as it goes and finally
 #           "done FOUND MISSING"
@@ -21,6 +23,8 @@ CURL="${AGS_CURL:-curl}"
 SERVER="${AGS_ART_SERVER:-https://thumbnails.libretro.com}"
 KINDS="${AGS_ART_KINDS:-Named_Logos Named_Boxarts}"
 RUN="${AGS_ART_RUN:-/tmp/slot-art}"
+SGDB="${AGS_ART_SGDB:-https://www.steamgriddb.com/api/v2}"
+SGDB_KEY_FILE="${AGS_ART_SGDB_KEY:-$SD/Config/steamgriddb.conf}"
 SERIALS="${AGS_ART_SERIALS:-https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/serial/Nintendo%20-%20Game%20Boy%20Advance.dat}"
 LOG="$RUN/art.log"
 
@@ -138,14 +142,74 @@ name_for_code() {
 		END { if (!found && first != "") print first }' "$file"
 }
 
-# A logo by name, then by game code, then the same for the box.
-# fetch_one's variables are global, so these keep names of their own.
+# The SteamGridDB API key, if the card has one (Config/steamgriddb.conf).
+sgdb_key() {
+	[ -f "$SGDB_KEY_FILE" ] || return 1
+	key="$(sed -e 's/^[^=]*=//' "$SGDB_KEY_FILE" | tr -d ' \t\r\n')"
+	[ -n "$key" ] && echo "$key"
+}
+
+sgdb_get() {
+	$CURL -fsSL -g --connect-timeout 10 --max-time 60 -H 'User-Agent: slot-art' \
+		-H "Authorization: Bearer $1" -o "$3" "$2" 2>/dev/null
+}
+
+# A fan-made logo from SteamGridDB, found by the game's name without its
+# tags and version: what romhacks have, since no retail list knows them.
+sgdb_logo() {
+	key="$(sgdb_key)" || return 1
+	term="$(printf '%s' "$1" | sed -e 's/([^)]*)//g' -e 's/\[[^]]*\]//g' \
+		-e 's/[ _-][vV][0-9][0-9.]*.*$//' -e 's/  */ /g' -e 's/^ //' -e 's/ $//')"
+	[ -n "$term" ] || return 1
+	# "extended" alone finds hotels: a hack whose header title says POKEMON
+	# is searched as one, so the hit must say Pokemon too.
+	if [ -n "$3" ] && dd if="$3" bs=1 skip=160 count=7 2>/dev/null | grep -q '^POKEMON'; then
+		case "$(plain "$term")" in
+		pokemon*) ;;
+		*) term="Pokemon $term" ;;
+		esac
+	fi
+	id="$(sgdb_find "$key" "$term")"
+	[ -n "$id" ] || return 1
+	reply="$RUN/sgdb.json"
+	sgdb_get "$key" "$SGDB/logos/game/$id?mimes=image/png" "$reply" || return 1
+	url="$(grep -o '"url": *"[^"]*"' "$reply" | head -n 1 | sed -e 's/^"url": *"//' -e 's/"$//' -e 's#\\/#/#g')"
+	[ -n "$url" ] || return 1
+	get "$url" "$2.part" && mv -f "$2.part" "$2" && log "$1: SteamGridDB logo for $term" && return 0
+	rm -f "$2.part"
+	return 1
+}
+
+# The SteamGridDB id of the first search hit whose name has every word of
+# the term (or whose name is all in the term): search ranks loosely, and a
+# wrong game's logo is worse than none.
+sgdb_find() {
+	reply="$RUN/sgdb.json"
+	sgdb_get "$1" "$SGDB/search/autocomplete/$(urlencode "$2")" "$reply" || return 1
+	words="$(printf '%s' "$2" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9' ' ')"
+	tr ',{}[]' '\n\n\n\n\n' < "$reply" | sed -e 's/\\u00[cCeE]9/e/g' -e 's/\\u[0-9a-fA-F]\{4\}//g' |
+		awk -v words="$words" '
+			BEGIN { n = split(words, w, " "); all = ""; for (i = 1; i <= n; i++) all = all w[i] }
+			/^"id": *[0-9]/ { id = $0; sub(/^"id": */, "", id) }
+			/^"name": *"/ {
+				name = $0; sub(/^"name": *"/, "", name); name = tolower(name); gsub(/[^a-z0-9]/, "", name)
+				ok = id != "" && name != "" && n > 0
+				for (i = 1; ok && i <= n; i++) if (!index(name, w[i])) ok = 0
+				if (id != "" && name != "" && !ok && index(all, name)) ok = 1
+				if (ok) { print id; exit }
+				id = ""
+			}'
+}
+
+# A logo by name, a fan-made logo by name, then by game code, then the same
+# for the box. fetch_one's variables are global, so these keep their own.
 art_for() {
 	code=""
 	basegame=""
 	looked=""
 	for KIND in $KINDS; do
 		fetch_one "$1" "$2" "$4" && return 0
+		[ "$KIND" = Named_Logos ] && sgdb_logo "$2" "$4" "$3" && return 0
 		if [ -z "$looked" ] && [ "$1" = GBA ]; then
 			looked=1
 			code="$(game_code "$3")" && basegame="$(name_for_code "$code")"
