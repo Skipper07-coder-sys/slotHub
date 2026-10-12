@@ -16,7 +16,7 @@ VENDOR="${AGS_BT_VENDOR:-/mnt/vendor/ctrl/setBluetooth.sh}"
 VENDOR_LOCK="${AGS_BT_VENDOR_LOCK:-/tmp/.init_bt}"
 BTCTL="${AGS_BTCTL:-bluetoothctl}"
 BLUEALSA="${AGS_BLUEALSA:-bluealsa}"
-BLUEALSA_APLAY="${AGS_BLUEALSA_APLAY:-bluealsa-aplay}"
+DBUS_SEND="${AGS_DBUS_SEND:-dbus-send}"
 SYSTEMCTL="${AGS_SYSTEMCTL:-systemctl}"
 SCAN_S="${AGS_BT_SCAN_S:-12}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
@@ -111,28 +111,33 @@ name_of() {
 	printf '%s\n' "${n% - Find My}"
 }
 
-# A link is not yet audio: a BlueALSA PCM for the address means A2DP is up.
-# A bluealsa-aplay that cannot list PCMs proves nothing, so fall back to the link.
+# A link is not audio. BlueZ holds a media transport object
+# (/org/bluez/hci0/dev_XX_XX_XX_XX_XX_XX/fdN) exactly while an A2DP stream is
+# configured, whatever BlueALSA version sits on top; this BlueALSA's
+# bluealsa-aplay has no -L to ask it instead.
 a2dp_ready() {
-	if pcms="$("$BLUEALSA_APLAY" -L 2>/dev/null)"; then
-		printf '%s\n' "$pcms" | grep -q -i "DEV=$1" && return 0
-		printf '%s\n' "$pcms" | grep -q "bluealsa" && return 1
+	if ! command -v "$DBUS_SEND" >/dev/null 2>&1; then
+		# No way to see the stream: count the link, and let connect() ask anyway.
+		connected "$1"
+		return
 	fi
-	connected "$1"
+	path="dev_$(printf '%s' "$1" | tr ':' '_')/fd"
+	"$DBUS_SEND" --system --print-reply --dest=org.bluez / \
+		org.freedesktop.DBus.ObjectManager.GetManagedObjects 2>/dev/null |
+		grep -q -i "$path"
 }
 
-# Ask for the profiles explicitly: pairing alone leaves AirPods linked with no
-# A2DP. Never disconnect here; a link without a stream is still worth keeping.
+# Pairing leaves AirPods linked with no A2DP: always ask for the profiles
+# explicitly unless a stream already exists. Never disconnect here.
 connect() {
-	a2dp_ready "$1" && return 0
+	command -v "$DBUS_SEND" >/dev/null 2>&1 && a2dp_ready "$1" && return 0
 	btctl 15 connect "$1" >> "$LOG"
 	wait_for "a2dp_ready $1" 8 && return 0
 	log "$1: no A2DP stream yet, asking again"
 	btctl 15 connect "$1" >> "$LOG"
 	wait_for "a2dp_ready $1" 8 && return 0
-	connected "$1" || return 1
-	log "$1: linked, but BlueALSA has no stream for it"
-	return 0
+	log "$1: still no A2DP stream"
+	return 1
 }
 
 reconnect() {
@@ -148,7 +153,7 @@ reconnect() {
 
 status() {
 	for mac in $(paired); do
-		if audio "$mac" && connected "$mac"; then
+		if audio "$mac" && a2dp_ready "$mac"; then
 			echo "$mac $(name_of "$mac")"
 			return 0
 		fi
@@ -175,8 +180,18 @@ pair() {
 	up || return 1
 	# A scan while A2DP is up tears the stream down a few seconds later.
 	for mac in $(paired); do
-		if audio "$mac" && connected "$mac"; then
-			log "$(name_of "$mac") ($mac) already connected, not searching"
+		if audio "$mac" && a2dp_ready "$mac"; then
+			log "$(name_of "$mac") ($mac) already playing, not searching"
+			return 0
+		fi
+	done
+	# Headphones paired before need a connect, not a new pairing: pairing a
+	# bonded AirPods again hangs and ends in AuthenticationRejected.
+	for mac in $(paired); do
+		audio "$mac" || continue
+		log "trying $(name_of "$mac") ($mac), paired before"
+		if connect "$mac"; then
+			log "connected $(name_of "$mac")"
 			return 0
 		fi
 	done

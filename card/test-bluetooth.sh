@@ -26,7 +26,7 @@ case "\$1" in
 	devices|paired-devices)
 		for d in "$TMP"/bt/*; do
 			[ -d "\$d" ] || continue
-			[ "\$1" = devices ] || grep -q "Paired: yes" "\$d/info" || continue
+			[ "\$1 \${2:-}" = "devices " ] || grep -q "Paired: yes" "\$d/info" || continue
 			echo "Device \$(basename "\$d") \$(sed -n 's/^.*Name: //p' "\$d/info")"
 		done ;;
 	info) cat "$TMP/bt/\$2/info" 2>/dev/null ;;
@@ -36,16 +36,17 @@ case "\$1" in
 		else
 			echo "	Paired: yes" >> "$TMP/bt/\$2/info"
 		fi ;;
-	connect) echo "	Connected: yes" >> "$TMP/bt/\$2/info" ;;
+	connect) printf '\tConnected: yes\n\tA2DP: yes\n' >> "$TMP/bt/\$2/info" ;;
 esac
 exit 0
 FAKE
-	cat > "$TMP/bin/bluealsa-aplay" <<FAKE
+	# BlueZ lists a media transport only while A2DP is configured; "A2DP: yes"
+	# in a fake device's info stands for that.
+	cat > "$TMP/bin/dbus-send" <<FAKE
 #!/bin/sh
 for d in "$TMP"/bt/*; do
-	grep -q "Connected: yes" "\$d/info" 2>/dev/null || continue
-	grep -q "Class:" "\$d/info" || continue
-	echo "bluealsa:DEV=\$(basename "\$d"),PROFILE=a2dp,SRV=org.bluealsa"
+	grep -q "A2DP: yes" "\$d/info" 2>/dev/null || continue
+	echo "object path \"/org/bluez/hci0/dev_\$(basename "\$d" | tr ':' '_')/fd0\""
 done
 FAKE
 	cat > "$TMP/bin/pidof" <<FAKE
@@ -89,7 +90,7 @@ run() {
 	PATH="$TMP/bin:$PATH" \
 		AGS_BT_LOG="$TMP/bt.log" AGS_BT_HCI="$TMP/hci0" AGS_BT_VENDOR="$TMP/vendor.sh" \
 		AGS_BT_VENDOR_LOCK="$TMP/init_bt" AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 \
-		AGS_BLUEALSA_APLAY="$TMP/bin/bluealsa-aplay" \
+		AGS_DBUS_SEND="$TMP/bin/dbus-send" \
 		sh "$SCRIPT" "$@" > /dev/null 2>&1
 }
 
@@ -122,7 +123,7 @@ reset
 device AA:AA:AA:AA:AA:03 "Alias: Le battonetes 2 - Find My" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes"
 run on && rc=0 || rc=$?
 grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "on did not reconnect paired headphones"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/bin/bluealsa-aplay" sh "$SCRIPT" status 2>/dev/null)" || true
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" sh "$SCRIPT" status 2>/dev/null)" || true
 [ "$out" = "AA:AA:AA:AA:AA:03 Le battonetes 2" ] || fail "status printed '$out'"
 
 reset
@@ -133,16 +134,26 @@ grep -q "^connect AA:AA:AA:AA:AA:04" "$TMP/btctl.log" || fail "pair never asked 
 
 reset
 device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
-printf '#!/bin/sh\nexit 1\n' > "$TMP/bin/bluealsa-aplay"
-out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_BLUEALSA_APLAY="$TMP/bin/bluealsa-aplay" sh "$SCRIPT" status 2>/dev/null)" || true
-[ "$out" = "AA:AA:AA:AA:AA:03 AirPods Pro" ] || fail "status ignored linked headphones when bluealsa-aplay cannot list: '$out'"
+out="$(PATH="$TMP/bin:$PATH" AGS_BT_LOG="$TMP/bt.log" AGS_DBUS_SEND="$TMP/bin/dbus-send" sh "$SCRIPT" status 2>/dev/null)" || true
+[ -z "$out" ] || fail "status called linked headphones with no A2DP stream connected: '$out'"
 run on && rc=0 || rc=$?
 grep -q "disconnect" "$TMP/btctl.log" && fail "on disconnected headphones it could not confirm"
 
+# Pairing leaves AirPods linked with no A2DP. A press must ask for the profiles,
+# not trust the link, and not search or pair a bonded device again.
 reset
 device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes" "Connected: yes"
 run pair && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "pair with linked but silent headphones exited $rc"
+grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "pair trusted a link with no A2DP and never asked to connect"
+grep -q "^pair " "$TMP/btctl.log" && fail "pair paired headphones that were already bonded"
+grep -q "^scan on" "$TMP/btctl.log" && fail "pair searched instead of connecting bonded headphones"
+
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "Paired: yes" "Connected: yes" "A2DP: yes"
+run pair && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "pair with headphones already connected exited $rc"
+grep -q "^connect " "$TMP/btctl.log" && fail "pair reconnected headphones that were already playing"
 grep -q "^scan on" "$TMP/btctl.log" && fail "pair scanned while headphones were connected, which drops A2DP"
 
 reset
