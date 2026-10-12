@@ -61,6 +61,9 @@ file_size() {
 download() {
 	$CURL -fsSL --connect-timeout 10 --max-time 900 -H 'User-Agent: slot-update' -o "$2" "$1" &
 	pid=$!
+	# If slot goes away mid-download the next progress line kills this
+	# script; curl must not go on filling the card on its own.
+	trap 'kill "$pid" 2>/dev/null' EXIT HUP INT TERM PIPE
 	total="${3:-0}"
 	last=-1
 	while kill -0 "$pid" 2>/dev/null; do
@@ -72,6 +75,9 @@ download() {
 		sleep 1
 	done
 	wait "$pid"
+	rc=$?
+	trap - EXIT HUP INT TERM PIPE
+	return $rc
 }
 
 # The release API answers in JSON; BusyBox has no jq, so pick fields out with
@@ -180,7 +186,10 @@ do_slot() {
 		return 6
 	}
 	new="$(find "$tmp/tree" -type d -name System | head -n 1)"
-	[ -n "$new" ] && [ -f "$new/slot" ] || { log "slot: no System/slot in the zip"; /bin/rm -rf "$tmp"; return 6; }
+	# Whatever goes in has to be able to start, and to put the old one back.
+	for f in slot launch_frontend.sh update.sh; do
+		[ -n "$new" ] && [ -f "$new/$f" ] || { log "slot: no System/$f in the zip"; /bin/rm -rf "$tmp"; return 6; }
+	done
 	printf '%s\n' "$tag" > "$new/release"
 	mv "$new" "$SD/System.new" || { /bin/rm -rf "$tmp"; return 1; }
 	/bin/rm -rf "$tmp"
@@ -196,7 +205,7 @@ do_baseos() {
 	size="$(printf '%s\n' "$check" | sed -n 's/^baseos_size=//p')"
 	[ -n "$url" ] || { log "baseos: no payload for this device"; return 7; }
 	name="$(basename "$url")"
-	/bin/rm -f "$SD"/baseos-*.bosupd "$SD"/baseos-*.bosupd.part
+	/bin/rm -f "$SD"/baseos-*.bosupd.part
 	log "baseos: downloading $ver"
 	download "$url" "$SD/$name.part" "$size" || { log "baseos: download failed"; /bin/rm -f "$SD/$name.part"; return 4; }
 	# The payload carries its own manifest hash, which BaseOS checks after
@@ -207,7 +216,11 @@ do_baseos() {
 		/bin/rm -f "$SD/$name.part"
 		return 5
 	fi
-	mv "$SD/$name.part" "$SD/$name" || return 1
+	# Only now is an older payload let go of.
+	for old in "$SD"/baseos-*.bosupd; do
+		[ "$old" = "$SD/$name" ] || /bin/rm -f "$old"
+	done
+	mv "$SD/$name.part" "$SD/$name" || { /bin/rm -f "$SD/$name.part"; return 1; }
 	sync
 	log "baseos: $name ready; applies on the next restart"
 	return 0
@@ -223,10 +236,13 @@ LDSO="${AGS_LDSO:-/lib/ld-linux-aarch64.so.1}"
 # is asked.
 splash() {
 	[ -f "$1/slot" ] && grep -q -- '--splash' "$1/slot" 2>/dev/null || return 0
+	# A splash that hangs must not hold up the start it is announcing.
+	run=""
+	command -v timeout >/dev/null 2>&1 && run="timeout 5"
 	if [ -x "$LDSO" ]; then
-		"$LDSO" "$1/slot" --splash "$2" >/dev/null 2>&1
+		$run "$LDSO" "$1/slot" --splash "$2" >/dev/null 2>&1
 	else
-		"$1/slot" --splash "$2" >/dev/null 2>&1
+		$run "$1/slot" --splash "$2" >/dev/null 2>&1
 	fi
 	return 0
 }
@@ -240,6 +256,7 @@ do_swap() {
 		tag="$(tag_of "$SD/System.new")"
 		splash "$SD/System.new" "Installing ${tag:-update}"
 		/bin/rm -rf "$SD/System.prev"
+		sync
 		if mv "$SYS" "$SD/System.prev" && mv "$SD/System.new" "$SYS"; then
 			# The label cache is worth keeping; a fresh one takes a while to build.
 			[ -d "$SD/System.prev/Cache" ] && [ ! -d "$SYS/Cache" ] \
@@ -260,7 +277,8 @@ do_swap() {
 		tag="$(tag_of "$SD/System.prev")"
 		splash "$SD/System.prev" "Restoring ${tag:-the last version}"
 		/bin/rm -rf "$SD/System.failed"
-		mv "$SYS" "$SD/System.failed" && mv "$SD/System.prev" "$SYS"
+		mv "$SYS" "$SD/System.failed" \
+			&& { mv "$SD/System.prev" "$SYS" || mv "$SD/System.failed" "$SYS"; }
 		/bin/rm -f "$SYS/.trial"
 		sync
 		log "swap: new System failed $n starts, System.prev is back"

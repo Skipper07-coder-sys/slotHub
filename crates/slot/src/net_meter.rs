@@ -54,7 +54,7 @@ impl NetMeter {
             .and_then(|t| wireless_dbm(&t, &self.iface));
         self.ssid = std::fs::read_to_string(&self.ssid_file)
             .ok()
-            .map(|t| t.trim().to_string())
+            .map(|t| crate::wifi::unescape_ssid(t.trim()))
             .filter(|t| !t.is_empty());
         let (Some(rx), Some(tx)) = (self.counter("rx_bytes"), self.counter("tx_bytes")) else {
             self.last = None;

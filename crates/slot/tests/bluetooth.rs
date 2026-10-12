@@ -134,8 +134,8 @@ fn choosing_headphones_lists_what_the_scan_found_and_a_connects_the_picked_pair(
     press(&mut a, Btn::A);
     assert_eq!(
         *fake.asked.lock().unwrap(),
-        [BtJob::Connect(AIRPODS.into())],
-        "A did not connect the headphones under the cursor"
+        [BtJob::On, BtJob::Connect(AIRPODS.into())],
+        "the radio was not switched on before the scan, or A did not connect the headphones under the cursor"
     );
     assert_eq!(
         a.bt_setup(),

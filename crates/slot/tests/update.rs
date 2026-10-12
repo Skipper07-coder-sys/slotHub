@@ -219,3 +219,26 @@ fn a_swapped_in_system_is_kept_once_slot_has_run_a_while() {
     a.tick_ms(40_000);
     assert_eq!(*fake.confirmed.lock().unwrap(), 1, "confirmed twice");
 }
+
+#[test]
+fn a_downloaded_update_installs_with_wifi_gone_and_survives_reopening_the_page() {
+    let (_d, mut a, fake) = booted(WifiState::Online);
+    open_update(&mut a);
+    *fake.state.lock().unwrap() = Some(UpdateState::Ready(UpdateJob::Slot));
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::Update));
+    press(&mut a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::SlotUpdate));
+    assert_eq!(
+        *fake.asked.lock().unwrap(),
+        [UpdateJob::Check],
+        "reopening the page checked again and forgot the download"
+    );
+    a.set_wifi_jobs(Box::new(OnlineWifi(WifiState::Off)));
+    assert_eq!(
+        a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
+        Some("Restart to Install")
+    );
+    press(&mut a, Btn::A);
+    assert!(a.restarting(), "a ready update needed Wi-Fi to install");
+}

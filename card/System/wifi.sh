@@ -193,6 +193,9 @@ wifi_up() {
 	fi
 	if ! wait_state; then
 		log "no network joined in ${JOIN_S}s"
+		# A join that lands later would sit there with no address; start
+		# clean on the next try instead.
+		leave
 		return 4
 	fi
 	$UDHCPC -i wlan0 -b -t 5 -T 3 -p "$DHCP_PID" -x "hostname:$(hostname 2>/dev/null || echo slot)" \
