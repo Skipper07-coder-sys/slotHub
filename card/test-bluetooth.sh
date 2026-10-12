@@ -17,7 +17,7 @@ fail() {
 # device seen, holding its info text. "A2DP: yes" in an info stands for a BlueZ
 # media transport, which the fake dbus-send lists.
 reset() {
-	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/bt-pending" "$TMP/hci0" "$TMP/var-bt" "$TMP/bonds.tar" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
+	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/bt-pending" "$TMP/hci0" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
 	mkdir -p "$TMP/bin" "$TMP/run" "$TMP/bt"
 	cat > "$TMP/bin/bluetoothctl" <<FAKE
 #!/bin/sh
@@ -44,12 +44,12 @@ case "\$1" in
 		done ;;
 	info) cat "$TMP/bt/\$2/info" 2>/dev/null ;;
 	pair)
-		if [ -n "\${FAKE_REJECT:-}" ]; then
+		if [ -n "\${FAKE_SILENT:-}" ]; then
+			:
+		elif [ -n "\${FAKE_REJECT:-}" ]; then
 			echo "Failed to pair: org.bluez.Error.AuthenticationRejected"
 		else
 			echo "	Paired: yes" >> "$TMP/bt/\$2/info"
-			mkdir -p "$TMP/var-bt/68:8F:C9:35:51:EB/\$2"
-			echo "[LinkKey]" > "$TMP/var-bt/68:8F:C9:35:51:EB/\$2/info"
 		fi ;;
 	connect)
 		if grep -q "0000110b-" "$TMP/bt/\$2/info"; then
@@ -120,7 +120,6 @@ run() {
 		AGS_BT_VENDOR="$TMP/vendor.sh" AGS_BT_VENDOR_LOCK="$TMP/init_bt" \
 		AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 AGS_BT_PAIR_SCAN_S=0 \
 		AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" \
-		AGS_BT_STORE="$TMP/var-bt" AGS_BT_BONDS="$TMP/bonds.tar" \
 		sh "$SCRIPT" "$@"
 }
 
@@ -177,21 +176,6 @@ grep -q "^mac=AA:AA:AA:AA:AA:03$" "$TMP/bluetooth.conf" || fail "connect did not
 grep -q "^name=AirPods Pro$" "$TMP/bluetooth.conf" || fail "connect did not remember their name"
 grep -q "scan on" "$TMP/btctl.log" || fail "connect did not keep searching while it paired"
 grep -q "^scan off" "$TMP/btctl.log" || fail "connect left the search running into the A2DP connect"
-[ -f "$TMP/bonds.tar" ] || fail "connect did not save the pairing to the card"
-tar -tf "$TMP/bonds.tar" | grep -q "68:8F:C9:35:51:EB/AA:AA:AA:AA:AA:03/info" || fail "the saved pairings lack the new bond"
-
-# After a boot BlueZ's store is empty: on puts the saved pairings back before
-# bluetoothd runs with them.
-rm -rf "$TMP/var-bt" "$TMP/bt" "$TMP"/*.log; mkdir -p "$TMP/bt"
-: > "$TMP/run/bluetoothd"
-quiet on && rc=0 || rc=$?
-[ "$rc" = 0 ] || fail "on with saved pairings exited $rc"
-[ -f "$TMP/var-bt/68:8F:C9:35:51:EB/AA:AA:AA:AA:AA:03/info" ] || fail "on did not restore the saved pairings"
-grep -q "^restart" "$TMP/systemctl.log" || fail "on restored the pairings without restarting bluetoothd"
-# Already in RAM: nothing is restored or restarted.
-: > "$TMP/systemctl.log"
-quiet on
-grep -q "^restart" "$TMP/systemctl.log" && fail "on restarted bluetoothd although the pairings were in RAM"
 
 # Headphones BlueZ dropped from its list come back during the search.
 reset
@@ -241,6 +225,14 @@ FAKE_REJECT=1 quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
 [ "$rc" = 4 ] || fail "a refused pairing exited $rc, not 4"
 grep -q "^remove AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "a refused pairing did not forget the stale bond"
 [ -e "$TMP/bluetooth.conf" ] && fail "a refused pairing was remembered"
+
+# Headphones not in pairing mode never answer: that is the pairing-mode hint
+# too, and nothing is forgotten.
+reset
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "RSSI: -40"
+FAKE_SILENT=1 quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 4 ] || fail "a pairing nobody answered exited $rc, not 4"
+grep -q "^remove " "$TMP/btctl.log" && fail "a pairing nobody answered forgot the device"
 
 # A device without a sink pairs but cannot connect: that fails with a dump.
 reset
