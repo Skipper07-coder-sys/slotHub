@@ -127,12 +127,19 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::WifiChoose,
             QuickRow::Update,
             QuickRow::SlotUpdate,
-            QuickRow::BaseOsUpdate
+            QuickRow::BaseOsUpdate,
+            QuickRow::WifiArt
         ]
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        ["Wi-Fi", "Network", "Choose Network", "Wi-Fi Drive"]
+        [
+            "Wi-Fi",
+            "Network",
+            "Choose Network",
+            "Wi-Fi Drive",
+            "Game Artwork"
+        ]
     );
     assert_eq!(QuickRow::UPDATE.map(QuickRow::label), ["slot", "BaseOS"]);
     for page in [

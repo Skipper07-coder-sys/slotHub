@@ -22,6 +22,7 @@ use slot_ui::{
     SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
+use crate::art::{art_jobs, ArtJobs};
 use crate::audio::Sfx;
 use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
@@ -375,6 +376,9 @@ pub struct App {
     update_confirm_at: Option<Millis>,
     installed: Installed,
     drive: Box<dyn DriveJobs>,
+    art: Box<dyn ArtJobs>,
+    /// A fetch is under way; its end rescans the shelves for the new labels.
+    art_running: bool,
     /// While the drive is on: what the library looked like at the last look,
     /// and whether it has changed since the shelves were built.
     drive_marks: Option<(std::collections::BTreeMap<String, u64>, bool)>,
@@ -427,6 +431,8 @@ impl App {
             update_confirm_at: None,
             installed: Installed::default(),
             drive: drive_jobs(),
+            art: art_jobs(),
+            art_running: false,
             drive_marks: None,
             drive_look_at: 0,
             dropped_faces: Vec::new(),
@@ -738,7 +744,8 @@ impl App {
             | QuickRow::Update
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
-            | QuickRow::WifiDrive => None,
+            | QuickRow::WifiDrive
+            | QuickRow::WifiArt => None,
         }
     }
 
@@ -750,6 +757,7 @@ impl App {
             QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
             QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
             QuickRow::WifiDrive => Some(self.drive_text()),
+            QuickRow::WifiArt => Some(self.art_text()),
             _ => None,
         }
     }
@@ -846,6 +854,39 @@ impl App {
             DriveState::On => crate::drive::address(),
             DriveState::Missing => "Not Installed".into(),
             DriveState::Failed => "Failed".into(),
+        }
+    }
+
+    pub fn set_art_jobs(&mut self, jobs: Box<dyn ArtJobs>) {
+        self.art = jobs;
+    }
+
+    fn art_text(&self) -> String {
+        let state = self.art.state();
+        if !state.running() && self.wifi.state() != WifiState::Online {
+            return "Needs Wi-Fi".into();
+        }
+        if let Some(text) = state.text() {
+            return text;
+        }
+        match self.carts().filter(|c| c.label.is_none()).count() {
+            0 => "All Found".into(),
+            n => format!("Get {n}"),
+        }
+    }
+
+    fn fetch_art(&mut self) {
+        if self.art.state().running() || self.wifi.state() != WifiState::Online {
+            return;
+        }
+        self.art.fetch();
+        self.art_running = true;
+    }
+
+    fn art_timers(&mut self) {
+        if self.art_running && !self.art.state().running() {
+            self.art_running = false;
+            self.rescan_due = true;
         }
     }
 
@@ -1702,6 +1743,7 @@ impl App {
             | QuickRow::Rumble => {}
             QuickRow::WifiNetwork => self.rejoin_wifi(),
             QuickRow::WifiDrive => self.toggle_drive(),
+            QuickRow::WifiArt => self.fetch_art(),
         }
     }
 
@@ -1954,7 +1996,8 @@ impl App {
             | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
-            | QuickRow::BaseOsUpdate => return,
+            | QuickRow::BaseOsUpdate
+            | QuickRow::WifiArt => return,
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
             QuickRow::WifiDrive => return self.toggle_drive(),
         }
@@ -2311,6 +2354,7 @@ impl App {
         self.bt_setup_timers();
         self.update_timers();
         self.drive_timers();
+        self.art_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);
