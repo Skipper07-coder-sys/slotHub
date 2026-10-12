@@ -283,9 +283,6 @@ pub struct App {
     play_held: Option<Millis>,
     refusal: Option<Refusal>,
     refused_from: Option<f32>,
-    /// The screen a cart was ejected on, offered as its label by SELECT on
-    /// the shelf: the way to label a romhack, which no artwork covers.
-    ejected_frame: Option<(Platform, String, Vec<u8>)>,
     alert_face: Option<TexId>,
     shutdown_faces: Vec<(TexId, u32, u32)>,
     power_menu: Option<usize>,
@@ -452,7 +449,6 @@ impl App {
             play_held: None,
             refusal: None,
             refused_from: None,
-            ejected_frame: None,
             alert_face: None,
             shutdown_faces: Vec::new(),
             power_menu: None,
@@ -1765,7 +1761,6 @@ impl App {
                 Action::Insert => self.insert(!self.state.eject_save),
                 Action::GbaDown(Btn::L1) => self.switch_shelf(-1),
                 Action::GbaDown(Btn::R1) => self.switch_shelf(1),
-                Action::GbaDown(Btn::Select) => self.label_from_ejected(),
                 _ => {}
             },
             Phase::Inserting { .. } if action == Action::Eject => self.eject(),
@@ -3271,11 +3266,6 @@ impl App {
         };
         self.end_link();
         self.close_game_menu();
-        self.ejected_frame = self
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.thumb())
-            .map(|png| (self.platform, cart.clone(), png));
         self.flush_eject(&cart);
         self.pending = None;
         self.refusal = None;
@@ -3997,51 +3987,23 @@ impl App {
         else {
             return;
         };
-        let (platform, stem) = (self.platform, stem.to_string());
-        match std::fs::read(&thumb) {
-            Ok(png) => self.write_label(&root, platform, &stem, &png),
-            Err(e) => eprintln!("slot: label: {}: {e}", thumb.display()),
-        }
-    }
-
-    /// SELECT on the shelf, on the cart just ejected: the screen it was
-    /// ejected on becomes its label.
-    fn label_from_ejected(&mut self) {
-        let Some(root) = self.root.clone() else {
-            return;
-        };
-        let Some(cart) = self.shelf().carts.get(self.shelf().index) else {
-            return;
-        };
-        let here = (cart.platform, cart.stem.clone());
-        let ours = matches!(&self.ejected_frame, Some((p, s, _)) if (*p, s) == (here.0, &here.1));
-        if !ours {
-            return self.refuse();
-        }
-        let Some((platform, stem, png)) = self.ejected_frame.take() else {
-            return;
-        };
-        self.write_label(&root, platform, &stem, &png);
-    }
-
-    fn write_label(&mut self, root: &Path, platform: Platform, stem: &str, png: &[u8]) {
-        let cart = self
+        let platform = self.platform;
+        let label = self
             .shelves
             .iter()
             .flat_map(|(_, s)| &s.carts)
-            .find(|c| c.platform == platform && c.stem == stem);
-        let wide = cart.and_then(|c| crate::thumb::widened(png, slot_ui::label_size(c)));
-        let png = wide.as_deref().unwrap_or(png);
-        let label = cart.and_then(|c| c.label.clone()).unwrap_or_else(|| {
-            root.join("Labels")
-                .join(platform.dir_name())
-                .join(format!("{stem}.png"))
-        });
+            .find(|c| c.platform == platform && c.stem == stem)
+            .and_then(|c| c.label.clone())
+            .unwrap_or_else(|| {
+                root.join("Labels")
+                    .join(platform.dir_name())
+                    .join(format!("{stem}.png"))
+            });
         let part = label.with_extension("png.part");
         let written = label
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|_| std::fs::write(&part, png))
+            .and_then(|_| std::fs::copy(&thumb, &part))
             .and_then(|_| std::fs::rename(&part, &label));
         if let Err(e) = written {
             eprintln!("slot: label {}: {e}", label.display());
@@ -4050,7 +4012,6 @@ impl App {
             return;
         }
         self.rescan_due = true;
-        self.rescan_when_idle();
         self.hud.toast(Toast::LabelSet, self.now());
     }
 
