@@ -80,19 +80,24 @@ download() {
 	return $rc
 }
 
-# The release API answers in JSON; BusyBox has no jq, so pick fields out with
-# sed. Each asset's URL sits on its own line in GitHub's pretty-printed reply.
+# The release API answers in JSON, minified or pretty-printed; BusyBox has no
+# jq, so the reply is cut at every comma and bracket, leaving one key per line
+# in the order GitHub sent them, and fields are picked out with sed.
+keys() {
+	tr ',{}[]' '\n\n\n\n\n'
+}
+
 json_field() {
-	sed -n "s/^[[:space:]]*\"$1\":[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
+	keys | sed -n "s/^[[:space:]]*\"$1\":[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n 1
 }
 
 asset_url() {
-	sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -- "$1" | head -n 1
+	keys | sed -n 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/\1/p' | grep -- "$1" | head -n 1
 }
 
-# An asset's "size" comes a few lines before its browser_download_url.
+# An asset's "size" comes a few keys before its browser_download_url.
 asset_size() {
-	sed -n -e 's/^[[:space:]]*"size":[[:space:]]*\([0-9]*\).*/size \1/p' \
+	keys | sed -n -e 's/^[[:space:]]*"size":[[:space:]]*\([0-9]*\).*/size \1/p' \
 		-e 's/^[[:space:]]*"browser_download_url":[[:space:]]*"\([^"]*\)".*/url \1/p' |
 		while read -r kind value; do
 			case "$kind" in
@@ -128,7 +133,9 @@ do_check() {
 		log "check: could not reach GitHub for $SLOT_REPO"
 		return 4
 	}
-	echo "slot_latest=$(printf '%s\n' "$reply" | json_field tag_name)"
+	tag="$(printf '%s\n' "$reply" | json_field tag_name)"
+	[ -n "$tag" ] || log "check: no tag_name in the reply for $SLOT_REPO: $(printf '%s' "$reply" | head -c 200)"
+	echo "slot_latest=$tag"
 	zip="$(printf '%s\n' "$reply" | asset_url '-h700.zip')"
 	echo "slot_zip=$zip"
 	echo "slot_sums=$(printf '%s\n' "$reply" | asset_url 'SHA256SUMS')"

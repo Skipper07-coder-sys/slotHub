@@ -812,8 +812,8 @@ impl App {
             .into_iter()
             .flatten()
             .find(|v| !v.is_empty() && *v != "unknown")
-            .unwrap_or("Unknown")
-            .to_string();
+            .map(version_label)
+            .unwrap_or_else(|| "Unknown".into());
         // A download already on the card installs without the network, and
         // one under way says how far it has got whatever the radio does.
         match state {
@@ -4245,9 +4245,21 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
     stamp
 }
 
+const VERSION_MAX: usize = 12;
 const DEVICE_NAME_MAX: usize = 18;
 
 // The headphones' name sits where a value would; long ones are cut.
+/// A release tag short enough to leave the row's label clear; a test build
+/// stamped with a branch name keeps its end, where the name differs.
+fn version_label(tag: &str) -> String {
+    let n = tag.chars().count();
+    if n <= VERSION_MAX {
+        return tag.to_string();
+    }
+    let tail: String = tag.chars().skip(n - (VERSION_MAX - 3)).collect();
+    format!("...{tail}")
+}
+
 fn device_label(name: &str) -> String {
     match name.char_indices().nth(DEVICE_NAME_MAX) {
         Some((cut, _)) => format!("{}...", name[..cut].trim_end()),

@@ -85,7 +85,8 @@ jobs:
             > "$OUT/System/licenses/filebrowser.meta"
 
       - name: Stamp the release the tree came from
-        run: echo "${RELEASE:-$GITHUB_REF_NAME}" > "$OUT/System/release"
+        # A test build is named by its commit, short enough for the Update page.
+        run: echo "${RELEASE:-dev-$(echo "$GITHUB_SHA" | cut -c1-7)}" > "$OUT/System/release"
 
       - name: Check what is about to ship
         run: |
