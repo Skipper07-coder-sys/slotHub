@@ -129,7 +129,7 @@ grep -qx fr-logo "$L/GBA/Radical Red v4.1.png" 2>/dev/null || fail "romhack did 
 # logo before its base game's.
 mkdir -p "$TMP/card/Config" "$TMP/server/sgdb/search/autocomplete" "$TMP/server/sgdb/logos/game/4242?mimes=image"
 echo "key = abc123" > "$TMP/card/Config/steamgriddb.conf"
-echo '{"success":true,"data":[{"id":4242,"name":"Pokemon Unbound"},{"id":7,"name":"x"}]}' \
+echo '{"success":true,"data":[{"types":["steam"],"id":7,"name":"Pok\u00e9mon Pinball"},{"types":[],"id":4242,"name":"Pok\u00e9mon Unbound"}]}' \
 	> "$TMP/server/sgdb/search/autocomplete/Pokemon Unbound"
 echo '{"success":true,"data":[{"id":1,"score":3,"url":"http:\/\/art\/cdn\/unbound.png"}]}' \
 	> "$TMP/server/sgdb/logos/game/4242?mimes=image/png"

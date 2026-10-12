@@ -163,7 +163,17 @@ sgdb_logo() {
 	[ -n "$term" ] || return 1
 	reply="$RUN/sgdb.json"
 	sgdb_get "$key" "$SGDB/search/autocomplete/$(urlencode "$term")" "$reply" || return 1
-	id="$(grep -o '"id": *[0-9]*' "$reply" | head -n 1 | grep -o '[0-9]*$')"
+	# The first hit whose name holds the term (or the other way round):
+	# search ranks loosely, and a wrong game's logo is worse than none.
+	want="$(plain "$term")"
+	id="$(tr ',{}[]' '\n\n\n\n\n' < "$reply" | sed -e 's/\\u00[cCeE]9/e/g' -e 's/\\u[0-9a-fA-F]\{4\}//g' |
+		awk -v want="$want" '
+			/^"id": *[0-9]/ { id = $0; sub(/^"id": */, "", id) }
+			/^"name": *"/ {
+				n = $0; sub(/^"name": *"/, "", n); n = tolower(n); gsub(/[^a-z0-9]/, "", n)
+				if (id != "" && n != "" && (index(n, want) || index(want, n))) { print id; exit }
+				id = ""
+			}')"
 	[ -n "$id" ] || return 1
 	sgdb_get "$key" "$SGDB/logos/game/$id?mimes=image/png" "$reply" || return 1
 	url="$(grep -o '"url": *"[^"]*"' "$reply" | head -n 1 | sed -e 's/^"url": *"//' -e 's/"$//' -e 's#\\/#/#g')"
