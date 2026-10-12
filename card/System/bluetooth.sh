@@ -27,6 +27,11 @@ SCAN_S="${AGS_BT_SCAN_S:-12}"
 PAIR_SCAN_S="${AGS_BT_PAIR_SCAN_S:-60}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
 STATUS_SEEN="${AGS_BT_STATUS_SEEN:-/tmp/slot-bt-status}"
+# BlueZ keeps its pairings here; on BaseOS that is RAM, so they are saved to
+# the card (FAT allows no ':' in names, hence a tar) and put back before
+# bluetoothd starts.
+STORE="${AGS_BT_STORE:-/var/lib/bluetooth}"
+BONDS="${AGS_BT_BONDS:-$SD/bluetooth-bonds.tar}"
 # A2DP volume (0-127) given to headphones that come up silent.
 VOLUME="${AGS_BT_VOLUME:-90}"
 
@@ -95,11 +100,33 @@ start_bluealsa() {
 	return 1
 }
 
+bonded_in_ram() {
+	[ -n "$(find "$STORE" -mindepth 2 -maxdepth 2 -type d 2>/dev/null)" ]
+}
+
+# The pairings saved on the card go back into BlueZ's store whenever it is
+# empty, which it is after every boot: the AirPods kept the old link key and
+# refused every fresh pairing with it.
+restore_bonds() {
+	[ -f "$BONDS" ] || return 1
+	bonded_in_ram && return 1
+	mkdir -p "$STORE"
+	tar -xf "$BONDS" -C "$STORE" 2>>"$LOG" || { log "could not restore the pairings from $BONDS"; return 1; }
+	log "restored the saved pairings"
+}
+
+save_bonds() {
+	bonded_in_ram || return 0
+	tar -cf "$BONDS.new" -C "$STORE" . 2>>"$LOG" && mv -f "$BONDS.new" "$BONDS" && log "saved the pairings to the card"
+	return 0
+}
+
 up() {
 	rfkill unblock bluetooth 2>/dev/null
 	attached=0
 	attach || return 1
 	sh "$VENDOR" enable >> "$LOG" 2>&1
+	restore_bonds && attached=1
 	if [ "$attached" = 1 ] && "$SYSTEMCTL" is-active bluetooth >/dev/null 2>&1; then
 		"$SYSTEMCTL" restart bluetooth >> "$LOG" 2>&1
 	else
@@ -301,16 +328,17 @@ sinks() {
 	done | sort -t "$(printf '\t')" -k1,1nr
 }
 
+# BlueZ reports a device's RSSI only while a search is running (every device
+# came back -999 on the card once it had stopped), so the list is read before
+# the search ends.
 scan() {
 	up || return 1
 	log "searching for headphones"
-	{
-		echo "scan on"
-		sleep "$SCAN_S"
-		echo "scan off"
-		echo "quit"
-	} | "$BTCTL" > /dev/null 2>&1
+	"$BTCTL" --timeout "$((SCAN_S + 10))" scan on > /dev/null 2>&1 &
+	scanner=$!
+	sleep "$SCAN_S"
 	found="$(sinks)"
+	stop_search
 	log "found: $(printf '%s\n' "$found" | tr '\t' ' ' | tr '\n' ';')"
 	[ -n "$found" ] && printf '%s\n' "$found"
 	return 0
@@ -366,6 +394,7 @@ connect_to() {
 		return 1
 	fi
 	remember "$mac" "$name"
+	save_bonds
 	log "connected ${name:-$mac}"
 }
 
@@ -379,6 +408,7 @@ down() {
 	killall bluetoothctl 2>/dev/null
 	killall bluealsa 2>/dev/null
 	rm -f "$STATUS_SEEN"
+	save_bonds
 	log "bluetooth off"
 	return 0
 }
