@@ -63,6 +63,10 @@ impl Pacer {
     }
 }
 
+/// Linked shader programs, kept so later starts skip compiling them. It goes
+/// with System, so an update starts it afresh.
+const PROGRAM_CACHE: &str = "System/Cache/Shaders";
+
 pub fn run() {
     slot::boot_time::mark("start");
     let _ = std::thread::Builder::new()
@@ -82,6 +86,7 @@ pub fn run() {
         }
     };
     slot::boot_time::mark("surface");
+    slot_gfx::set_program_cache(root.join(PROGRAM_CACHE));
     let mut compositor = match Compositor::new(&surface) {
         Ok(c) => c,
         Err(e) => {

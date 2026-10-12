@@ -73,12 +73,22 @@ impl CartFaces {
             .filter(|w| w.on_screen)
             .map(|w| (w.shelf, w.index))
             .collect();
+        let began = std::time::Instant::now();
+        let missing = waiting.len();
         while !waiting.is_empty() {
             let Ok((key, rom, face)) = self.built.recv() else {
                 return;
             };
             waiting.retain(|k| *k != key);
             self.place(app, compositor, key, &rom, face);
+        }
+        // A frame that waits here is a stutter while scrolling.
+        let waited = began.elapsed();
+        if waited > std::time::Duration::from_millis(4) {
+            eprintln!(
+                "slot: shelf: waited {:.1} ms for {missing} cart faces",
+                waited.as_secs_f64() * 1e3
+            );
         }
     }
 
