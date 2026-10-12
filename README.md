@@ -109,6 +109,39 @@ again the day you switch it off, along with your fast-forward, rewind and turbo 
 
 ---
 
+# Wi-Fi
+
+slot can join your home Wi-Fi so you can reach the card over the network. Put a `wifi.conf`
+at the root of the card, next to `System/`, listing each network's name and password:
+
+```ini
+# The first network listed is preferred when both are in range
+ssid=Home
+psk=my wifi password
+
+ssid=Phone Hotspot
+psk=another password
+```
+
+Leave the `psk` line out for an open network. Then open the quick menu, go to **Wi-Fi** and switch it
+**On**. The **Network** row shows how joining went:
+
+| Network shows | What it means |
+|---------------|---------------|
+| Joining...    | Looking for a listed network and getting an address |
+| Connected     | Online. The handheld answers at `<hostname>.local`, eg `rg34xxsp.local` |
+| No wifi.conf  | There is no `wifi.conf`, or no network in it with a 8 to 63 character password |
+| Not Found     | None of the listed networks is in range, or the password is wrong |
+| No Address    | Joined, but the router gave no address |
+| Failed        | The radio did not start. Details are in `slot-wifi.log` |
+
+Press **A** on **Network** to try again. Wi-Fi stays on across restarts until you switch it off.
+Link play takes over the radio while a link is up and hands it back afterwards.
+
+Once connected, BaseOS's SSH server lets you copy games, labels and saves with any SFTP app
+(Cyberduck, ForkLift, WinSCP or `scp`): log in as `root` at `rg34xxsp.local`. **Set your own SSH
+password first**: BaseOS uses `root` until you add `ssh_password=` to `baseos.conf`.
+
 # AI Disclosure
 
 The Rust frontend was put together by Claude Opus. I reviewed everything that was

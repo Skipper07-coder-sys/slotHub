@@ -29,6 +29,7 @@ use crate::link_screen::LinkSprites;
 use crate::link_start::{link_port, LinkFail, LinkProgress, LinkStarter, LinkStep};
 use crate::persist::{self, Snapshot};
 use crate::video_mode::{self, VideoMode};
+use crate::wifi::{wifi_jobs, WifiJob, WifiJobs, WifiState};
 
 pub const INSERT_S: f32 = 0.73;
 const INSERT_HOLD_S: f32 = 0.28;
@@ -349,6 +350,7 @@ pub struct App {
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
+    wifi: Box<dyn WifiJobs>,
     state_writer: crate::state_writer::StateWriter,
 }
 
@@ -386,6 +388,7 @@ impl App {
         let card_failing = state_writer.card_failing();
         App {
             radio: radio_jobs(),
+            wifi: wifi_jobs(),
             state_writer,
             phase: Phase::Shelf,
             shelves,
@@ -490,6 +493,9 @@ impl App {
         app.pure = read_pure(root);
         if app.pure {
             eprintln!("slot: pure: on, from {}", slot_store::PURE_FILE);
+        }
+        if app.state.wifi {
+            app.wifi.ask(WifiJob::On);
         }
         if app.state.clock_set {
             app.start();
@@ -668,7 +674,28 @@ impl App {
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => None,
+            QuickRow::WifiPower => Some(QuickValue::flag(self.state.wifi)),
+            QuickRow::WifiNetwork => Some(self.network_value()),
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Wifi => None,
+        }
+    }
+
+    fn network_value(&self) -> QuickValue {
+        if !self.state.wifi {
+            return QuickValue::Off;
+        }
+        match self.wifi.state() {
+            WifiState::Off => QuickValue::Off,
+            WifiState::Connecting => QuickValue::Joining,
+            WifiState::Online => QuickValue::Online,
+            WifiState::NoSetup => QuickValue::NoSetup,
+            WifiState::NotFound => QuickValue::NotFound,
+            WifiState::NoAddress => QuickValue::NoAddress,
+            WifiState::Failed => QuickValue::Trouble,
         }
     }
 
@@ -1356,7 +1383,7 @@ impl App {
                 self.phase = clock_screen(self.utc_secs(), self.state.utc_offset_min, true);
             }
             QuickRow::About => self.phase = Phase::About,
-            QuickRow::Screen | QuickRow::Game => {
+            QuickRow::Screen | QuickRow::Game | QuickRow::Wifi => {
                 if let Some(row) = row.child_in(self.pure) {
                     self.phase = Phase::QuickMenu { row };
                 }
@@ -1370,7 +1397,15 @@ impl App {
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
+            | QuickRow::WifiPower
             | QuickRow::Rumble => {}
+            QuickRow::WifiNetwork => self.rejoin_wifi(),
+        }
+    }
+
+    fn rejoin_wifi(&mut self) {
+        if self.state.wifi && self.wifi.state() != WifiState::Connecting {
+            self.wifi.ask(WifiJob::On);
         }
     }
 
@@ -1411,7 +1446,17 @@ impl App {
             QuickRow::Turbo => s.turbo = !s.turbo,
             QuickRow::Rewind => s.rewind = !s.rewind,
             QuickRow::GbPalettes => s.gb_palettes = !s.gb_palettes,
-            QuickRow::DateTime | QuickRow::About | QuickRow::Screen | QuickRow::Game => return,
+            QuickRow::WifiPower => {
+                s.wifi = !s.wifi;
+                let job = if s.wifi { WifiJob::On } else { WifiJob::Off };
+                self.wifi.ask(job);
+            }
+            QuickRow::DateTime
+            | QuickRow::About
+            | QuickRow::Screen
+            | QuickRow::Game
+            | QuickRow::Wifi => return,
+            QuickRow::WifiNetwork => return self.rejoin_wifi(),
         }
         self.persist();
     }
@@ -2773,6 +2818,10 @@ impl App {
             role,
             since: self.now(),
         });
+    }
+
+    pub fn set_wifi_jobs(&mut self, jobs: Box<dyn WifiJobs>) {
+        self.wifi = jobs;
     }
 
     pub fn set_radio_jobs(&mut self, jobs: Box<dyn RadioJobs>) {
