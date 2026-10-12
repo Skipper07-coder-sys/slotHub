@@ -23,6 +23,8 @@ BLUEALSA="${AGS_BLUEALSA:-bluealsa}"
 DBUS_SEND="${AGS_DBUS_SEND:-dbus-send}"
 SYSTEMCTL="${AGS_SYSTEMCTL:-systemctl}"
 SCAN_S="${AGS_BT_SCAN_S:-12}"
+# How long the search keeps running while a pairing is attempted.
+PAIR_SCAN_S="${AGS_BT_PAIR_SCAN_S:-60}"
 ALIAS="${AGS_BT_ALIAS:-slot}"
 STATUS_SEEN="${AGS_BT_STATUS_SEEN:-/tmp/slot-bt-status}"
 # A2DP volume (0-127) given to headphones that come up silent.
@@ -133,11 +135,27 @@ connected() {
 	btctl 5 info "$1" | grep -q "Connected: yes"
 }
 
-# Headphones and speakers carry the A2DP Audio Sink service (UUID 110b). An
-# "audio-*" icon is not enough: a TV advertising only Audio Source matched it
-# on the card, got paired, and then refused to connect.
+# Headphones and speakers carry the A2DP Audio Sink service (UUID 110b), but
+# BlueZ lists a device's services only once it has connected to it; freshly
+# found headphones show a class and an icon and nothing else, and on the card
+# the AirPods vanished from the list the moment their stale bond was removed.
+# So the service decides when it is listed (a TV advertising only Audio Source
+# matched an audio icon, got paired, and refused to connect), and until then
+# the device class does, as the muOS Bluetooth app for the RG35XX SP has it:
+# major class Audio/Video with a headset, headphones or speaker minor class.
 sink() {
-	printf '%s\n' "$1" | grep -q -i -e "0000110b-" -e "Audio Sink"
+	if printf '%s\n' "$1" | grep -q -i "UUID:"; then
+		printf '%s\n' "$1" | grep -q -i -e "0000110b-" -e "Audio Sink"
+		return
+	fi
+	class="$(printf '%s\n' "$1" | sed -n 's/^[[:space:]]*Class: 0x\([0-9A-Fa-f]\{1,\}\).*/\1/p' | head -n 1)"
+	[ -n "$class" ] || return 1
+	c=$((0x$class))
+	[ $(((c >> 8) & 0x1f)) -eq 4 ] || return 1
+	case $(((c >> 2) & 0x3f)) in
+	1 | 2 | 5 | 6 | 7 | 8 | 10) return 0 ;;
+	esac
+	return 1
 }
 
 name_of() {
@@ -298,9 +316,22 @@ scan() {
 	return 0
 }
 
+# BlueZ drops an unpaired device from its list about 30 s after a search ends,
+# so by the time a pair is picked from the list it can be gone ("not
+# available"), and pairing then fails at once. The search runs again in the
+# background until the pairing is over, which also keeps the headphones' class
+# and name current; the muOS app does the same.
 pair_with() {
 	btctl 5 info "$1" | grep -q "Paired: yes" && return 0
+	"$BTCTL" --timeout "$PAIR_SCAN_S" scan on > /dev/null 2>&1 &
+	scanner=$!
+	if ! wait_for "btctl 5 info $1 | grep -q -e 'Name:' -e 'Alias:'" 20; then
+		stop_search
+		log "$1 is not in range; put the headphones in pairing mode and try again"
+		return 1
+	fi
 	out="$(btctl 40 pair "$1")"
+	stop_search
 	printf '%s\n' "$out" >> "$LOG"
 	wait_for "btctl 5 info $1 | grep -q 'Paired: yes'" 5 && return 0
 	# A stale bond makes BlueZ fail with AuthenticationRejected every time.
@@ -314,13 +345,21 @@ pair_with() {
 	return 1
 }
 
+stop_search() {
+	kill "$scanner" 2>/dev/null
+	btctl 5 scan off > /dev/null 2>&1
+}
+
+# Trusted before paired: headphones connect back on their own right after
+# pairing, and BlueZ lets a trusted device in without asking the agent.
 connect_to() {
 	mac="$1"
 	up || return 1
 	name="$(name_of "$mac")"
 	log "connecting ${name:-$mac} ($mac)"
-	pair_with "$mac" || return $?
 	btctl 5 trust "$mac" >/dev/null
+	pair_with "$mac" || return $?
+	name="$(name_of "$mac")"
 	if ! connect "$mac"; then
 		log "${name:-$mac} paired but would not connect"
 		debug

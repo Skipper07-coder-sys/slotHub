@@ -17,18 +17,24 @@ fail() {
 # device seen, holding its info text. "A2DP: yes" in an info stands for a BlueZ
 # media transport, which the fake dbus-send lists.
 reset() {
-	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/hci0" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
+	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/bt-pending" "$TMP/hci0" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
 	mkdir -p "$TMP/bin" "$TMP/run" "$TMP/bt"
 	cat > "$TMP/bin/bluetoothctl" <<FAKE
 #!/bin/sh
 echo "\$*" >> "$TMP/btctl.log"
+# A search makes the devices waiting under bt-pending appear.
+found() {
+	[ -d "$TMP/bt-pending" ] && cp -r "$TMP/bt-pending"/. "$TMP/bt/" && rm -rf "$TMP/bt-pending"
+	return 0
+}
 # BlueZ 5.66 dropped paired-devices; devices Paired replaced it.
 if [ "\$1" = paired-devices ] && [ -n "\${FAKE_NEW_BLUEZ:-}" ]; then
 	echo "Invalid command in menu main: paired-devices"
 	exit 0
 fi
 case "\$1" in
-	"") cat >> "$TMP/btctl.log" ;;
+	"") cat >> "$TMP/btctl.log"; found ;;
+	--timeout) found ;;
 	show) echo "Controller 68:8F:C9:35:51:EB slot [default]"; echo "	Powered: yes" ;;
 	devices|paired-devices)
 		for d in "$TMP"/bt/*; do
@@ -110,7 +116,7 @@ run() {
 	PATH="$TMP/bin:$PATH" \
 		AGS_BT_LOG="$TMP/bt.log" AGS_BT_CONF="$TMP/bluetooth.conf" AGS_BT_HCI="$TMP/hci0" \
 		AGS_BT_VENDOR="$TMP/vendor.sh" AGS_BT_VENDOR_LOCK="$TMP/init_bt" \
-		AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 \
+		AGS_BLUEALSA="$TMP/bin/bluealsa" AGS_BT_SCAN_S=0 AGS_BT_PAIR_SCAN_S=0 \
 		AGS_DBUS_SEND="$TMP/bin/dbus-send" AGS_BT_STATUS_SEEN="$TMP/status" \
 		sh "$SCRIPT" "$@"
 }
@@ -139,7 +145,7 @@ grep -q -- "--a2dp-keep-alive=" "$TMP/bluealsa.log" || fail "on did not fall bac
 reset
 device AA:AA:AA:AA:AA:01 "Name: Keyboard" "Icon: input-keyboard" "RSSI: -20"
 device AA:AA:AA:AA:AA:02 "Name: Far Speaker" "Class: 0x240414" "Icon: audio-card" "$SINK" "RSSI: 0xffffffb0 (-80)"
-device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "$SINK" "RSSI: -40"
+device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "Class: 0x240418" "Icon: audio-headphones" "RSSI: -40"
 device AA:AA:AA:AA:AA:04 "Name: AirPods Pro - Find My" "Icon: audio-headphones" "RSSI: -30"
 device AA:AA:AA:AA:AA:05 "Name: 43PUS8909/12" "Class: 0x3c0000" "Icon: audio-card" "UUID: Audio Source (0000110a-0000-1000-8000-00805f9b34fb)" "RSSI: -35"
 out="$(run scan 2>/dev/null)" && rc=0 || rc=$?
@@ -166,14 +172,32 @@ grep -q "^trust AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect did not tru
 grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect never asked for the audio profiles"
 grep -q "^mac=AA:AA:AA:AA:AA:03$" "$TMP/bluetooth.conf" || fail "connect did not remember the headphones"
 grep -q "^name=AirPods Pro$" "$TMP/bluetooth.conf" || fail "connect did not remember their name"
-grep -q "^scan on" "$TMP/btctl.log" && fail "connect searched, which drops A2DP"
+grep -q "scan on" "$TMP/btctl.log" || fail "connect did not keep searching while it paired"
+grep -q "^scan off" "$TMP/btctl.log" || fail "connect left the search running into the A2DP connect"
 
-# Headphones already bonded get a connect, never a second pairing.
+# Headphones BlueZ dropped from its list come back during the search.
+reset
+mkdir -p "$TMP/bt-pending/AA:AA:AA:AA:AA:03"
+printf '\tName: AirPods Pro\n\tClass: 0x240418\n\t%s\n' "$SINK" > "$TMP/bt-pending/AA:AA:AA:AA:AA:03/info"
+quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "connect to headphones no longer listed exited $rc"
+grep -q "^pair AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "headphones that reappeared were not paired"
+grep -q "^mac=AA:AA:AA:AA:AA:03$" "$TMP/bluetooth.conf" || fail "headphones that reappeared were not remembered"
+
+# Headphones out of range are reported, not paired blindly.
+reset
+quiet connect AA:AA:AA:AA:AA:09 && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "connect to absent headphones exited $rc, not 1"
+grep -q "^pair " "$TMP/btctl.log" && fail "connect paired headphones nobody can see"
+grep -q "not in range" "$TMP/bt.log" || fail "absent headphones were not logged as out of range"
+
+# Headphones already bonded get a connect, never a second pairing or a search.
 reset
 device AA:AA:AA:AA:AA:03 "Name: AirPods Pro" "$SINK" "Paired: yes" "Connected: yes"
 quiet connect AA:AA:AA:AA:AA:03 && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "connect on bonded headphones exited $rc"
 grep -q "^pair " "$TMP/btctl.log" && fail "connect paired headphones that were already bonded"
+grep -q "scan on" "$TMP/btctl.log" && fail "connect searched for bonded headphones, which drops A2DP"
 grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "connect trusted a link with no A2DP and never asked"
 
 # Headphones already playing are left alone.
