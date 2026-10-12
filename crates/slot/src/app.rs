@@ -812,8 +812,16 @@ impl App {
             .into_iter()
             .flatten()
             .find(|v| !v.is_empty() && *v != "unknown")
-            .unwrap_or("Unknown")
-            .to_string();
+            .map(version_label)
+            .unwrap_or_else(|| "Unknown".into());
+        // A download already on the card installs without the network, and
+        // one under way says how far it has got whatever the radio does.
+        match state {
+            UpdateState::Downloading(j, step) if j == which => return step.text(),
+            UpdateState::Ready(j) if j == which => return "Restart to Install".into(),
+            UpdateState::Ready(_) => return format!("{installed}, Restart First"),
+            _ => {}
+        }
         if self.wifi.state() != WifiState::Online {
             return format!("{installed}, Wi-Fi Off");
         }
@@ -831,10 +839,8 @@ impl App {
                     None => format!("{installed} Up to Date"),
                 }
             }
-            UpdateState::Downloading(j) if j == which => "Downloading...".into(),
-            UpdateState::Ready(j) if j == which => "Restart to Install".into(),
             UpdateState::Failed(j, _) if j == which => "Failed, Retry".into(),
-            UpdateState::Downloading(_) => format!("{installed}, Busy"),
+            UpdateState::Downloading(..) => format!("{installed}, Busy"),
             UpdateState::Ready(_) => format!("{installed}, Restart First"),
             UpdateState::Failed(..) => installed,
         }
@@ -845,12 +851,24 @@ impl App {
     }
 
     fn open_update(&mut self) {
-        if self.wifi.state() == WifiState::Online && !self.update.state().busy() {
+        let state = self.update.state();
+        if self.wifi.state() == WifiState::Online
+            && !state.busy()
+            && !matches!(state, UpdateState::Ready(_))
+        {
             self.update.ask(UpdateJob::Check);
         }
     }
 
     fn press_update(&mut self, which: UpdateJob) {
+        if let UpdateState::Ready(j) = self.update.state() {
+            if j == which {
+                self.restarting = true;
+                self.act_at = self.now() + SHUTDOWN_SHOW_MS;
+                self.set_led(LedState::Off);
+            }
+            return;
+        }
         if self.wifi.state() != WifiState::Online {
             return;
         }
@@ -863,11 +881,6 @@ impl App {
                 if available.is_some() {
                     self.update.ask(which);
                 }
-            }
-            UpdateState::Ready(j) if j == which => {
-                self.restarting = true;
-                self.act_at = self.now() + SHUTDOWN_SHOW_MS;
-                self.set_led(LedState::Off);
             }
             UpdateState::Idle | UpdateState::Offline | UpdateState::Failed(..) => {
                 self.update.ask(UpdateJob::Check)
@@ -1951,6 +1964,7 @@ impl App {
         if !self.state.bluetooth {
             self.state.bluetooth = true;
             self.persist();
+            self.bt.ask(BtJob::On);
         }
         self.bt.scan();
         self.phase = Phase::BtSetup {
@@ -4231,9 +4245,21 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
     stamp
 }
 
+const VERSION_MAX: usize = 12;
 const DEVICE_NAME_MAX: usize = 18;
 
 // The headphones' name sits where a value would; long ones are cut.
+/// A release tag short enough to leave the row's label clear; a test build
+/// stamped with a branch name keeps its end, where the name differs.
+fn version_label(tag: &str) -> String {
+    let n = tag.chars().count();
+    if n <= VERSION_MAX {
+        return tag.to_string();
+    }
+    let tail: String = tag.chars().skip(n - (VERSION_MAX - 3)).collect();
+    format!("...{tail}")
+}
+
 fn device_label(name: &str) -> String {
     match name.char_indices().nth(DEVICE_NAME_MAX) {
         Some((cut, _)) => format!("{}...", name[..cut].trim_end()),

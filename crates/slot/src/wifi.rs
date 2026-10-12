@@ -83,13 +83,51 @@ pub trait WifiJobs: Send {
 }
 
 /// One network per line, as `wifi.sh scan` prints them.
+/// A network name as wpa_cli prints it, back to what the network sends:
+/// wpa_supplicant writes quotes and backslashes as `\"` and `\\`, and any byte
+/// outside printable ASCII as `\xNN`, so "Bob’s iPhone" arrives as
+/// `Bob\xe2\x80\x99s iPhone`.
+pub fn unescape_ssid(text: &str) -> String {
+    let b = text.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' || i + 1 == b.len() {
+            out.push(b[i]);
+            i += 1;
+            continue;
+        }
+        let hex = |at: usize| {
+            text.get(at..at + 2)
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        };
+        match b[i + 1] {
+            b'x' => match hex(i + 2) {
+                Some(v) => {
+                    out.push(v);
+                    i += 4;
+                    continue;
+                }
+                None => out.extend_from_slice(b"\\x"),
+            },
+            b'n' => out.push(b'\n'),
+            b'r' => out.push(b'\r'),
+            b't' => out.push(b'\t'),
+            b'e' => out.push(0x1b),
+            c => out.push(c),
+        }
+        i += 2;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 pub fn parse_scan(text: &str) -> Vec<WifiNetwork> {
     text.lines()
         .filter_map(|line| {
             let mut parts = line.splitn(3, '\t');
             let signal = parts.next()?.trim().parse().ok()?;
             let secured = parts.next()? == "1";
-            let ssid = parts.next()?.to_string();
+            let ssid = unescape_ssid(parts.next()?);
             (!ssid.is_empty()).then_some(WifiNetwork {
                 ssid,
                 secured,
@@ -234,6 +272,17 @@ impl WifiJobs for WifiQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scanned_name_is_read_back_from_wpa_clis_escapes() {
+        assert_eq!(
+            unescape_ssid("Bob\\xe2\\x80\\x99s iPhone"),
+            "Bob\u{2019}s iPhone"
+        );
+        assert_eq!(unescape_ssid(r#"say \"hi\" \\ ok"#), r#"say "hi" \ ok"#);
+        assert_eq!(unescape_ssid("plain"), "plain");
+        assert_eq!(unescape_ssid("odd\\xZZ\\"), "odd\\xZZ\\");
+    }
 
     #[test]
     fn a_job_runs_the_cards_script_through_sh() {

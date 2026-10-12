@@ -19,7 +19,13 @@ echo "|/bin/sh $SYS/coresave.sh %p %s %e %t" > /proc/sys/kernel/core_pattern 2>/
 
 # A downloaded update waits in System.new; the swap keeps the old System until
 # the new one has run (update.sh swap).
-[ -f "$SYS/update.sh" ] && sh "$SYS/update.sh" swap
+# While a new System is on trial, the old System's own update.sh counts the
+# starts, so a new one that is broken can still be rolled back.
+if [ -f "$SYS/.trial" ] && [ -f "$SD/System.prev/update.sh" ]; then
+	sh "$SD/System.prev/update.sh" swap
+elif [ -f "$SYS/update.sh" ]; then
+	sh "$SYS/update.sh" swap
+fi
 
 # Three earlier runs are kept: a crash loop would otherwise overwrite the
 # log of the run that caused it.

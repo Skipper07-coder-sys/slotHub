@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use common::{app_booting_at, tmp_root_with_carts, CLOCK_IS_SET};
 use slot::app::App;
-use slot::update::{Releases, UpdateJob, UpdateJobs, UpdateState};
+use slot::update::{Releases, Step, UpdateJob, UpdateJobs, UpdateState};
 use slot::wifi::{WifiJob, WifiJobs, WifiState};
 use slot_input::{Action, Btn};
 use slot_store::{write_slot_state, SlotState};
@@ -23,7 +23,7 @@ impl UpdateJobs for FakeUpdate {
         self.asked.lock().unwrap().push(job);
         *self.state.lock().unwrap() = Some(match job {
             UpdateJob::Check => UpdateState::Checking,
-            _ => UpdateState::Downloading(job),
+            _ => UpdateState::Downloading(job, Step::Started),
         });
     }
 
@@ -145,6 +145,17 @@ fn a_on_an_available_release_downloads_it_and_then_restarts_to_install() {
         a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
         Some("Downloading...")
     );
+    *fake.state.lock().unwrap() =
+        Some(UpdateState::Downloading(UpdateJob::Slot, Step::Percent(42)));
+    assert_eq!(
+        a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
+        Some("Downloading 42%...")
+    );
+    *fake.state.lock().unwrap() = Some(UpdateState::Downloading(UpdateJob::Slot, Step::Verifying));
+    assert_eq!(
+        a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
+        Some("Verifying...")
+    );
     // BaseOS's version comes from /etc/baseos-release, which a test host lacks.
     assert!(
         a.quick_live_text(QuickRow::BaseOsUpdate)
@@ -207,4 +218,27 @@ fn a_swapped_in_system_is_kept_once_slot_has_run_a_while() {
     assert_eq!(*fake.confirmed.lock().unwrap(), 1);
     a.tick_ms(40_000);
     assert_eq!(*fake.confirmed.lock().unwrap(), 1, "confirmed twice");
+}
+
+#[test]
+fn a_downloaded_update_installs_with_wifi_gone_and_survives_reopening_the_page() {
+    let (_d, mut a, fake) = booted(WifiState::Online);
+    open_update(&mut a);
+    *fake.state.lock().unwrap() = Some(UpdateState::Ready(UpdateJob::Slot));
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::Update));
+    press(&mut a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::SlotUpdate));
+    assert_eq!(
+        *fake.asked.lock().unwrap(),
+        [UpdateJob::Check],
+        "reopening the page checked again and forgot the download"
+    );
+    a.set_wifi_jobs(Box::new(OnlineWifi(WifiState::Off)));
+    assert_eq!(
+        a.quick_live_text(QuickRow::SlotUpdate).as_deref(),
+        Some("Restart to Install")
+    );
+    press(&mut a, Btn::A);
+    assert!(a.restarting(), "a ready update needed Wi-Fi to install");
 }
