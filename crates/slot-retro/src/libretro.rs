@@ -630,6 +630,15 @@ impl RetroCore for LibretroCore {
     }
 
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        // mGBA dereferences a short buffer instead of refusing it: an empty
+        // resume state left by a reset mid-write crashed it on every launch.
+        let size = unsafe { (self.api.serialize_size)() };
+        if data.is_empty() || data.len() < size {
+            return Err(CoreError::State(format!(
+                "state is {} bytes, the core needs {size}",
+                data.len()
+            )));
+        }
         let ok = {
             let _a = Active::bind(&mut self.host);
             unsafe { (self.api.unserialize)(data.as_ptr() as *const c_void, data.len()) }
