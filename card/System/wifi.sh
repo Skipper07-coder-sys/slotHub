@@ -242,6 +242,7 @@ wifi_scan() {
 	wait_wlan0 || { log "scan: no wlan0 in ${IFACE_S}s"; return 1; }
 	rfkill unblock all 2>/dev/null || true
 	$IP link set wlan0 up 2>/dev/null || true
+	log "scan: iw=$(command -v "$IW" 2>/dev/null || echo none) wpa_cli=$(command -v "$WPA_CLI" 2>/dev/null || echo none) wpa_supplicant=$(command -v "$WPA_SUPPLICANT" 2>/dev/null || echo none) wlan0=$(cat "$NET/wlan0/operstate" 2>/dev/null || echo ?)"
 	if command -v "$IW" >/dev/null 2>&1; then
 		$IW dev wlan0 set power_save off 2>/dev/null || true
 		sleep 1
@@ -249,8 +250,10 @@ wifi_scan() {
 		results=
 		while :; do
 			tries=$((tries + 1))
-			results="$($IW dev wlan0 scan 2>/dev/null | iw_scan_lines)"
+			raw="$($IW dev wlan0 scan 2>&1)"
+			results="$(printf '%s\n' "$raw" | iw_scan_lines)"
 			[ -n "$results" ] || [ "$tries" -ge "$SCAN_TRIES" ] && break
+			log "scan: pass $tries heard nothing: $(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')"
 			sleep "$SCAN_S"
 		done
 		log "scan: $(printf '%s\n' "$results" | grep -c .) results on pass $tries (iw)"
@@ -276,11 +279,13 @@ wifi_scan() {
 	tries=0
 	results=
 	while :; do
-		$WPA_CLI -p "$CTRL_DIR" -i wlan0 scan >/dev/null 2>&1
+		asked="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan 2>&1 | tr '\n' ' ')"
 		sleep "$SCAN_S"
-		results="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>/dev/null | tail -n +2)"
+		raw="$($WPA_CLI -p "$CTRL_DIR" -i wlan0 scan_results 2>&1)"
+		results="$(printf '%s\n' "$raw" | tail -n +2)"
 		tries=$((tries + 1))
 		[ -n "$results" ] || [ "$tries" -ge "$SCAN_TRIES" ] && break
+		log "scan: pass $tries heard nothing: scan said '$asked', results '$(printf '%s\n' "$raw" | head -n 2 | tr '\n' ' ')'"
 	done
 	log "scan: $(printf '%s\n' "$results" | grep -c .) results on pass $tries"
 	printf '%s\n' "$results" \
