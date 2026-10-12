@@ -128,6 +128,14 @@ fn the_wifi_icon_follows_the_radio() {
 }
 
 #[test]
+fn only_a_connected_radio_lights_its_icon() {
+    let (_d, a) = booted(true, WifiState::Connecting);
+    assert!(!a.status_icons()[1].1, "joining Wi-Fi stays dim");
+    let (_d, a) = booted(true, WifiState::Online);
+    assert!(a.status_icons()[1].1, "connected Wi-Fi is lit");
+}
+
+#[test]
 fn bluetooth_off_shows_the_crossed_out_icon() {
     let (_d, a) = booted(false, WifiState::Off);
     assert_eq!(a.status_icons()[0], (StatusIcon::BtOff, false));

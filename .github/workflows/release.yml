@@ -66,6 +66,24 @@ jobs:
       - name: Build the tree
         run: task dist:device OUT="$OUT"
 
+      - name: Add File Browser for Wi-Fi Drive
+        env:
+          FB_VERSION: v2.32.0
+          FB_SHA256: 1d45a0ea437ab23ffa9fac0f52064ca5e91e4e43828a4e29f0d5bcbf60fdbf03
+        run: |
+          set -eu
+          tmp="$(mktemp -d)"
+          base="https://github.com/filebrowser/filebrowser/releases/download/$FB_VERSION"
+          curl -fsSL -o "$tmp/linux-arm64-filebrowser.tar.gz" "$base/linux-arm64-filebrowser.tar.gz"
+          echo "$FB_SHA256  $tmp/linux-arm64-filebrowser.tar.gz" | sha256sum -c -
+          tar -xzf "$tmp/linux-arm64-filebrowser.tar.gz" -C "$tmp" filebrowser
+          mkdir -p "$OUT/System/bin"
+          install -m 755 "$tmp/filebrowser" "$OUT/System/bin/filebrowser"
+          curl -fsSL -o "$OUT/System/licenses/filebrowser-LICENSE" \
+            "https://raw.githubusercontent.com/filebrowser/filebrowser/$FB_VERSION/LICENSE"
+          echo "filebrowser $FB_VERSION (Apache-2.0), https://github.com/filebrowser/filebrowser" \
+            > "$OUT/System/licenses/filebrowser.meta"
+
       - name: Stamp the release the tree came from
         run: echo "${RELEASE:-$GITHUB_REF_NAME}" > "$OUT/System/release"
 
@@ -77,6 +95,9 @@ jobs:
           file "$out/System/mgba_libretro.so" | grep -q aarch64
           file "$out/System/gpsp_libretro.so" | grep -q aarch64
           test -x "$out/System/slot"
+          file "$out/System/bin/filebrowser" | grep -q aarch64
+          test -x "$out/System/bin/filebrowser"
+          test -f "$out/System/licenses/filebrowser-LICENSE"
           gpsp_src_sha="$(cat vendor/gpsp-src.sha)"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.tar.gz"
           test -f "$out/System/licenses/gpsp-${gpsp_src_sha}.meta"

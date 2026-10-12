@@ -1,0 +1,111 @@
+#!/bin/sh
+set -eu
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT="$HERE/System/art.sh"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+FAILS=0
+
+fail() {
+	echo "FAIL: $*"
+	FAILS=$((FAILS + 1))
+}
+
+# A stand-in for the thumbnail server: files under $TMP/server, a directory
+# answering with an index page that links each PNG, URL-encoded.
+mkdir -p "$TMP/bin"
+cat > "$TMP/bin/curl" <<FAKE
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP/curl.log"
+[ -n "\${FAKE_OFFLINE:-}" ] && exit 7
+out=""
+url=""
+head=""
+while [ \$# -gt 0 ]; do
+	case "\$1" in
+	-o) out="\$2"; shift ;;
+	-H|--connect-timeout|--max-time) shift ;;
+	-I) head=1 ;;
+	http*) url="\$1" ;;
+	esac
+	shift
+done
+[ -n "\$head" ] && exit 0
+path="\$(printf '%s' "\${url#http://art}" | sed -e 's/%20/ /g' -e 's/%28/(/g' -e 's/%29/)/g' -e 's/%2C/,/g' -e 's/%27/'"'"'/g' -e 's/%23/#/g' -e 's/%2B/+/g' -e 's/%5B/[/g' -e 's/%5D/]/g' -e 's/%25/%/g')"
+file="$TMP/server\$path"
+case "\$path" in
+*/)
+	[ -d "\$file" ] || exit 22
+	for f in "\$file"*.png; do
+		[ -e "\$f" ] || continue
+		n="\$(basename "\$f" | sed -e 's/ /%20/g' -e 's/(/%28/g' -e 's/)/%29/g' -e 's/,/%2C/g')"
+		echo "<a href=\"\$n\">x</a>"
+	done
+	;;
+*)
+	[ -f "\$file" ] || exit 22
+	cp "\$file" "\$out"
+	;;
+esac
+FAKE
+chmod 755 "$TMP/bin/curl"
+
+art() {
+	mkdir -p "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts" "$TMP/server/Nintendo - Game Boy/Named_Boxarts" "$TMP/server/Nintendo - Game Boy Color/Named_Boxarts"
+	echo "$2" > "$TMP/server/Nintendo - $1/Named_Boxarts/$2.png"
+}
+
+rom() {
+	mkdir -p "$TMP/card/Games/$1"
+	: > "$TMP/card/Games/$1/$2"
+}
+
+run() {
+	SLOT_ROOT="$TMP/card" AGS_CURL="$TMP/bin/curl" AGS_ART_SERVER="http://art" AGS_ART_RUN="$TMP/run" \
+		sh "$SCRIPT" "$@"
+}
+
+art "Game Boy Advance" "Pokemon - Emerald Version (USA, Europe)"
+art "Game Boy Advance" "Metroid Fusion (Europe) (En,Fr,De,Es,It)"
+art "Game Boy Advance" "Metroid Fusion (USA)"
+art "Game Boy Color" "Pokemon - Crystal Version (USA, Europe) (Rev 1)"
+art "Game Boy Advance" "Mario & Luigi - Superstar Saga (USA)"
+mkdir -p "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts"
+echo amp > "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts/Mario _ Luigi - Superstar Saga (USA).png"
+
+rom GBA "Pokemon - Emerald Version (USA, Europe).gba"
+rom GBA "Metroid Fusion.gba"
+rom GBA "Mario & Luigi - Superstar Saga (USA).GBA"
+rom GBA "Homebrew Thing.gba"
+rom GBA "notes.txt"
+rom GB "Pokemon - Crystal Version (USA, Europe) (Rev 1).gbc"
+mkdir -p "$TMP/card/Labels/GBA"
+echo mine > "$TMP/card/Labels/GBA/homebrew thing.png"
+
+out="$(run fetch)" && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "fetch exited $rc, want 0"
+echo "$out" | grep -qx "games 4" || fail "want 4 games without labels, got: $out"
+echo "$out" | grep -qx "progress 4 4" || fail "no progress lines: $out"
+echo "$out" | tail -n 1 | grep -qx "done 4 0" || fail "want done 4 0, got: $(echo "$out" | tail -n 1)"
+L="$TMP/card/Labels"
+grep -qx "Pokemon - Emerald Version (USA, Europe)" "$L/GBA/Pokemon - Emerald Version (USA, Europe).png" 2>/dev/null || fail "exact name not fetched"
+grep -qx "Metroid Fusion (USA)" "$L/GBA/Metroid Fusion.png" 2>/dev/null || fail "loose match did not prefer the USA box"
+grep -qx "amp" "$L/GBA/Mario & Luigi - Superstar Saga (USA).png" 2>/dev/null || fail "& was not swapped for _"
+[ -f "$L/GB/Pokemon - Crystal Version (USA, Europe) (Rev 1).png" ] || fail "a GBC game in GB/ was not looked up as Game Boy Color"
+grep -qx mine "$L/GBA/homebrew thing.png" || fail "a label already there was replaced"
+ls "$L"/*/*.part >/dev/null 2>&1 && fail "a partial download was left behind"
+
+rm -f "$L/GBA/Metroid Fusion.png"
+rm -f "$TMP/server/Nintendo - Game Boy Advance/Named_Boxarts/Metroid Fusion"*
+out="$(run fetch)" || true
+echo "$out" | tail -n 1 | grep -qx "done 0 1" || fail "a game with no art: want done 0 1, got: $out"
+
+FAKE_OFFLINE=1 run fetch > /dev/null && rc=0 || rc=$?
+[ "$rc" = 4 ] || fail "offline fetch exited $rc, want 4"
+
+if [ "$FAILS" -gt 0 ]; then
+	echo "$FAILS failure(s)"
+	exit 1
+fi
+echo "art.sh: all passed"

@@ -1,4 +1,5 @@
 pub mod app;
+pub mod art;
 pub mod audio;
 pub mod bezel;
 pub mod bluetooth;
@@ -11,6 +12,7 @@ pub mod core;
 pub mod core_picker;
 pub mod crash;
 pub mod drc;
+pub mod drive;
 pub mod emu;
 pub mod face_builder;
 pub mod frames;
