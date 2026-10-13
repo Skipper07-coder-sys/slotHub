@@ -203,28 +203,30 @@ fn open_gameplay(a: &mut App) {
 }
 
 #[test]
-fn the_gameplay_page_holds_only_rumble_auto_save_and_achievements() {
+fn the_gameplay_page_holds_only_run_ahead_rumble_auto_save_and_achievements() {
     let (_d, mut a) = pure_carousel();
     open_gameplay(&mut a);
-    assert_eq!(a.quick_menu(), Some(QuickRow::Rumble));
-    let mut seen = vec![QuickRow::Rumble];
-    for _ in 0..5 {
+    assert_eq!(a.quick_menu(), Some(QuickRow::RunAhead));
+    let mut seen = vec![QuickRow::RunAhead];
+    for _ in 0..7 {
         press(&mut a, Btn::Down);
         seen.push(a.quick_menu().expect("the menu closed"));
     }
     assert_eq!(
         seen,
         [
+            QuickRow::RunAhead,
             QuickRow::Rumble,
             QuickRow::EjectSave,
             QuickRow::Cheevos,
+            QuickRow::RunAhead,
             QuickRow::Rumble,
             QuickRow::EjectSave,
             QuickRow::Cheevos,
         ]
     );
     press(&mut a, Btn::Down);
-    assert_eq!(a.quick_menu(), Some(QuickRow::Rumble));
+    assert_eq!(a.quick_menu(), Some(QuickRow::RunAhead));
     press(&mut a, Btn::Up);
     assert_eq!(
         a.quick_menu(),
@@ -239,6 +241,13 @@ fn the_gameplay_page_holds_only_rumble_auto_save_and_achievements() {
 fn the_rows_pure_keeps_still_change_and_save() {
     let (d, mut a) = pure_carousel();
     open_gameplay(&mut a);
+    press(&mut a, Btn::Right);
+    assert_eq!(
+        read_slot_state(d.path()).runahead,
+        1,
+        "run-ahead never changed"
+    );
+    press(&mut a, Btn::Down);
     press(&mut a, Btn::Right);
     assert!(!read_slot_state(d.path()).rumble, "rumble never changed");
     press(&mut a, Btn::Down);

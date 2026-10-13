@@ -98,7 +98,14 @@ impl QuickRow {
         QuickRow::Cheevos,
     ];
 
-    pub const GAME_PURE: [QuickRow; 3] = [QuickRow::Rumble, QuickRow::EjectSave, QuickRow::Cheevos];
+    /// Run-ahead stays in pure mode: it only hides input lag, and the state it saves
+    /// and reloads every frame is never one the player can return to.
+    pub const GAME_PURE: [QuickRow; 4] = [
+        QuickRow::RunAhead,
+        QuickRow::Rumble,
+        QuickRow::EjectSave,
+        QuickRow::Cheevos,
+    ];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
     pub const UPDATE: [QuickRow; 3] = [
