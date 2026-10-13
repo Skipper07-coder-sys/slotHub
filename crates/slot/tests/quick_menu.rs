@@ -361,6 +361,47 @@ fn a_on_about_opens_the_label_and_b_comes_back_to_the_menu() {
 }
 
 #[test]
+fn a_on_the_label_opens_the_button_cheat_sheet_and_b_comes_back_to_the_label() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::About);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::A);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page: 0 }),
+        "{:?}",
+        a.phase()
+    );
+    press(&mut a, Btn::B);
+    assert!(matches!(a.phase(), Phase::About), "{:?}", a.phase());
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::About));
+}
+
+#[test]
+fn the_cheat_sheet_pages_turn_both_ways_and_wrap() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::About);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::A);
+    let pages = slot_ui::cheat_pages(false).len();
+    press(&mut a, Btn::Left);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page } if *page == pages - 1),
+        "left from the first page did not wrap to the last: {:?}",
+        a.phase()
+    );
+    press(&mut a, Btn::R1);
+    press(&mut a, Btn::Right);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page: 1 }),
+        "{:?}",
+        a.phase()
+    );
+    a.apply(Action::QuickMenu);
+    assert!(matches!(a.phase(), Phase::About), "{:?}", a.phase());
+}
+
+#[test]
 fn a_on_date_and_time_opens_the_clock_at_the_time_it_already_has() {
     let (_d, mut a, _) = on_carousel_with(SlotState {
         utc_offset_min: -300,
