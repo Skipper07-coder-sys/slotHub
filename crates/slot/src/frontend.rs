@@ -518,6 +518,13 @@ impl Frontend {
         self.session.set_driven(true);
     }
 
+    /// Game frames the emulator has published, and whether the game shows.
+    pub fn game_frames(&self) -> Option<u64> {
+        self.session
+            .game_visible()
+            .then(|| self.session.frames_published())
+    }
+
     pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {
         self.session.step_emulator(present, timeout)
     }

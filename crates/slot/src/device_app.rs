@@ -129,6 +129,7 @@ pub fn run() {
     frontend.drive_emulator();
     let mut pacer = Pacer::new();
     let (mut frames, mut missed, mut early) = (0u32, 0u32, 0u32);
+    let (mut shown, mut repeats, mut jumps, mut stepped_late) = (None::<u64>, 0u32, 0u32, 0u32);
     loop {
         pacer.wait();
         let began = Instant::now();
@@ -140,7 +141,16 @@ pub fn run() {
             frontend.poweroff();
             return;
         }
-        frontend.step_emulator(pacer.period, STEP_TIMEOUT);
+        let stepped = frontend.step_emulator(pacer.period, STEP_TIMEOUT);
+        if slot::latency::tracing() {
+            let now = frontend.game_frames();
+            if let (Some(was), Some(now)) = (shown, now) {
+                repeats += u32::from(now == was);
+                jumps += u32::from(now > was + 1);
+                stepped_late += u32::from(!stepped);
+            }
+            shown = now;
+        }
         frontend.render(&mut compositor, window);
         let swap = Instant::now();
         let work = swap - began;
@@ -157,11 +167,12 @@ pub fn run() {
             early += u32::from(swap_took > pacer.period / 2);
             if frames == 600 {
                 eprintln!(
-                    "slot: pace: 600 frames, {missed} missed a latch, {early} drawn early, work {:.1} ms, period {:.2} ms",
+                    "slot: pace: 600 frames, {missed} missed a latch, {early} drawn early, work {:.1} ms, period {:.2} ms, game: {repeats} repeated, {jumps} jumped, {stepped_late} not ready in time",
                     pacer.work.as_secs_f64() * 1e3,
                     pacer.period.as_secs_f64() * 1e3
                 );
                 (frames, missed, early) = (0, 0, 0);
+                (repeats, jumps, stepped_late) = (0, 0, 0);
             }
         }
         if !drawn {
