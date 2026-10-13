@@ -55,7 +55,7 @@ fn nearby() -> Vec<WifiNetwork> {
 
 fn choose_network(a: &mut App, fake: &Fake) {
     open_wifi(a);
-    for _ in 0..QuickRow::WifiChoose.position() {
+    for _ in 0..QuickRow::WifiNetwork.position() {
         press(a, Btn::Down);
     }
     press(a, Btn::A);
@@ -135,25 +135,47 @@ fn the_network_row_says_how_joining_went() {
 }
 
 #[test]
-fn a_on_the_network_row_tries_again_but_not_while_joining_or_off() {
-    let (_d, mut a, fake) = booted();
+fn a_saved_network_joins_again_without_its_password() {
+    let (d, mut a, fake) = booted();
+    std::fs::write(
+        d.path().join(WIFI_CONF),
+        "ssid=Cafe\n\nssid=Home\npsk=secret99\n",
+    )
+    .unwrap();
     open_wifi(&mut a);
     press(&mut a, Btn::Down);
-    assert_eq!(a.quick_menu(), Some(QuickRow::WifiNetwork));
     press(&mut a, Btn::A);
-    assert!(fake.asked.lock().unwrap().is_empty(), "joined while off");
-    press(&mut a, Btn::Up);
-    press(&mut a, Btn::Right);
+    *fake.found.lock().unwrap() = Some(nearby());
+    a.tick_ms(1);
+    assert_eq!(
+        a.wifi_setup(),
+        Some(&WifiSetup::scanned_with(
+            nearby(),
+            vec!["Cafe".into(), "Home".into()]
+        ))
+    );
+    press(&mut a, Btn::A);
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiNetwork));
+    assert_eq!(*fake.asked.lock().unwrap(), [WifiJob::On]);
+    let conf = std::fs::read_to_string(d.path().join(WIFI_CONF)).unwrap();
+    assert!(
+        conf.find("ssid=Home\npsk=secret99\n") < conf.find("ssid=Cafe"),
+        "{conf}"
+    );
+}
+
+#[test]
+fn y_on_a_saved_network_asks_for_a_new_password() {
+    let (d, mut a, fake) = booted();
+    std::fs::write(d.path().join(WIFI_CONF), "ssid=Home\npsk=secret99\n").unwrap();
+    open_wifi(&mut a);
     press(&mut a, Btn::Down);
     press(&mut a, Btn::A);
-    assert_eq!(
-        *fake.asked.lock().unwrap(),
-        [WifiJob::On],
-        "a second join started while the first was still joining"
-    );
-    *fake.state.lock().unwrap() = Some(WifiState::NotFound);
-    press(&mut a, Btn::A);
-    assert_eq!(*fake.asked.lock().unwrap(), [WifiJob::On, WifiJob::On]);
+    *fake.found.lock().unwrap() = Some(nearby());
+    a.tick_ms(1);
+    press(&mut a, Btn::Y);
+    assert_eq!(a.wifi_setup(), Some(&WifiSetup::password("Home")));
+    assert!(fake.asked.lock().unwrap().is_empty());
 }
 
 #[test]
@@ -204,9 +226,9 @@ fn x_scans_again_and_b_or_menu_leave_the_list() {
     assert_eq!(*fake.scans.lock().unwrap(), 2);
     assert_eq!(a.wifi_setup(), Some(&WifiSetup::Scanning));
     press(&mut a, Btn::B);
-    assert_eq!(a.quick_menu(), Some(QuickRow::WifiChoose));
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiNetwork));
     press(&mut a, Btn::A);
     a.apply(Action::QuickMenu);
-    assert_eq!(a.quick_menu(), Some(QuickRow::WifiChoose));
+    assert_eq!(a.quick_menu(), Some(QuickRow::WifiNetwork));
     assert!(fake.asked.lock().unwrap().is_empty());
 }

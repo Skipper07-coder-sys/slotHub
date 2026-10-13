@@ -203,7 +203,7 @@ fn open_gameplay(a: &mut App) {
 }
 
 #[test]
-fn the_gameplay_page_holds_only_rumble_and_auto_save_on_eject() {
+fn the_gameplay_page_holds_only_rumble_auto_save_and_achievements() {
     let (_d, mut a) = pure_carousel();
     open_gameplay(&mut a);
     assert_eq!(a.quick_menu(), Some(QuickRow::Rumble));
@@ -217,18 +217,18 @@ fn the_gameplay_page_holds_only_rumble_and_auto_save_on_eject() {
         [
             QuickRow::Rumble,
             QuickRow::EjectSave,
+            QuickRow::Cheevos,
             QuickRow::Rumble,
             QuickRow::EjectSave,
-            QuickRow::Rumble,
-            QuickRow::EjectSave,
+            QuickRow::Cheevos,
         ]
     );
-    press(&mut a, Btn::Up);
+    press(&mut a, Btn::Down);
     assert_eq!(a.quick_menu(), Some(QuickRow::Rumble));
     press(&mut a, Btn::Up);
     assert_eq!(
         a.quick_menu(),
-        Some(QuickRow::EjectSave),
+        Some(QuickRow::Cheevos),
         "up from the top did not wrap to the bottom"
     );
     press(&mut a, Btn::B);
@@ -282,7 +282,7 @@ fn label_drawn(out: &[Draw], row: QuickRow) -> bool {
 }
 
 #[test]
-fn the_gameplay_page_draws_two_rows_centred_and_none_of_the_locked_ones() {
+fn the_gameplay_page_draws_its_rows_centred_and_none_of_the_locked_ones() {
     let (_d, mut a) = pure_carousel();
     fake_faces(&mut a);
     open_gameplay(&mut a);
@@ -303,12 +303,8 @@ fn the_gameplay_page_draws_two_rows_centred_and_none_of_the_locked_ones() {
             _ => None,
         })
         .collect();
-    let top = (OUT_H as f32 - QUICK_PITCH * 2.0) / 2.0;
-    assert_eq!(
-        bars,
-        vec![top + 4.0],
-        "the bar is not on the first of two rows"
-    );
+    let top = (OUT_H as f32 - QUICK_PITCH * QuickRow::GAME_PURE.len() as f32) / 2.0;
+    assert_eq!(bars, vec![top + 4.0], "the bar is not on the first row");
 }
 
 #[test]

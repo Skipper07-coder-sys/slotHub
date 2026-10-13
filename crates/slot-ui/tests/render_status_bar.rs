@@ -55,6 +55,7 @@ fn render_status_bar() {
         values,
         live: &live,
         faces: Some(&menu_faces),
+        ticker: None,
     }
     .draw(&mut list);
     StatusBar {
