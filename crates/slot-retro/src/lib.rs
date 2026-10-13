@@ -3,6 +3,7 @@ mod ffi;
 mod libretro;
 mod link;
 mod mock;
+mod ra;
 mod rumble;
 
 pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
@@ -13,4 +14,5 @@ pub use ffi::{
 pub use libretro::LibretroCore;
 pub use link::{Link, LinkChannel, LoopbackLink};
 pub use mock::MockCore;
+pub use ra::{gba_regions, MapEntry, RaRegion};
 pub use rumble::Rumble;

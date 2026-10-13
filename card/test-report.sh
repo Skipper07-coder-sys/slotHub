@@ -60,6 +60,12 @@ cat > "$CARD/slot-wifi.log" <<'LOG'
 12:00:00 joining home psk=hunter2
 12:00:01 api_key: abc123 sent
 LOG
+cat > "$CARD/slot.log" <<'LOG'
+slot: cheevos: {"Success":true,"User":"me","Token":"rAtOkEn42","Score":0}
+slot: cheevos: {"Password": "raPassw0rd"}
+slot: cheevos: r=login2&u=me&p=formPass99&k=1
+slot: cheevos: r=awardachievement&u=me&t=formTok77&a=1
+LOG
 echo 'network={ psk="hunter2" }' > "$CARD/wifi.conf"
 mkdir -p "$CARD/Saves" "$CARD/crash"
 echo save > "$CARD/Saves/game.sav"
@@ -74,6 +80,11 @@ dir="$CARD/Reports/$name"
 grep -q hunter2 "$dir/slot-wifi.log" && fail "a Wi-Fi password reached the report"
 grep -q abc123 "$dir/slot-wifi.log" && fail "an API key reached the report"
 grep -rq hunter2 "$dir" && fail "something secret reached the report"
+[ -f "$dir/slot.log" ] || fail "slot.log was not copied"
+for secret in rAtOkEn42 raPassw0rd formPass99 formTok77; do
+	grep -rq "$secret" "$dir" && fail "a RetroAchievements secret ($secret) reached the report"
+done
+grep -q 'r=login2&u=me&p=\[removed\]&k=1' "$dir/slot.log" || fail "the form scrub took more than the password"
 [ -e "$dir/game.sav" ] || [ -e "$dir/Saves" ] && fail "saves reached the report"
 [ -f "$dir/crash/cores.log" ] || fail "the crash notes were not copied"
 [ -e "$dir/crash/slot.core" ] && fail "a core dump was copied"

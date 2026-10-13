@@ -58,6 +58,8 @@ pub struct Frontend {
     status_rate: StatusRate,
     wifi_setup: WifiSetupFace,
     bt_setup: BtSetupFace,
+    cheevos_setup: CheevosSetupFace,
+    cheevo: CheevoFace,
 }
 
 #[derive(Default)]
@@ -72,6 +74,20 @@ struct RebuildFaces {
 struct WifiSetupFace {
     tex: Option<TexId>,
     shown: Option<slot_ui::WifiSetup>,
+}
+
+/// The sign-in screen as last drawn. It holds the password being typed, so
+/// it is dropped (and wiped) as soon as the screen closes.
+#[derive(Default)]
+struct CheevosSetupFace {
+    tex: Option<TexId>,
+    shown: Option<slot_ui::CheevosSetup>,
+}
+
+#[derive(Default)]
+struct CheevoFace {
+    tex: Option<TexId>,
+    shown: Option<slot_ui::Cheevo>,
 }
 
 #[derive(Default)]
@@ -163,6 +179,8 @@ impl Frontend {
             status_rate: StatusRate::default(),
             wifi_setup: WifiSetupFace::default(),
             bt_setup: BtSetupFace::default(),
+            cheevos_setup: CheevosSetupFace::default(),
+            cheevo: CheevoFace::default(),
         }
     }
 
@@ -395,6 +413,8 @@ impl Frontend {
         sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
         sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
         sync_bt_setup(self.session.app_mut(), compositor, &mut self.bt_setup);
+        sync_cheevos_setup(self.session.app_mut(), compositor, &mut self.cheevos_setup);
+        sync_cheevo(self.session.app_mut(), compositor, &mut self.cheevo);
         sync_core_picker(
             self.session.app_mut(),
             compositor,
@@ -784,6 +804,36 @@ fn sync_wifi_setup(app: &mut App, compositor: &mut Compositor, state: &mut WifiS
     let tex = upload(compositor, &mut state.tex, setup.face());
     app.set_wifi_setup_face(tex);
     state.shown = Some(setup);
+}
+
+fn sync_cheevos_setup(app: &mut App, compositor: &mut Compositor, state: &mut CheevosSetupFace) {
+    let Some(setup) = app.cheevos_setup() else {
+        state.shown = None;
+        return;
+    };
+    if state.shown.as_ref() == Some(setup) {
+        return;
+    }
+    let setup = setup.clone();
+    let tex = upload(compositor, &mut state.tex, setup.face());
+    app.set_cheevos_setup_face(tex);
+    state.shown = Some(setup);
+}
+
+fn sync_cheevo(app: &mut App, compositor: &mut Compositor, state: &mut CheevoFace) {
+    let Some(cheevo) = app.cheevo_shown() else {
+        state.shown = None;
+        return;
+    };
+    if state.shown.as_ref() == Some(cheevo) {
+        return;
+    }
+    let cheevo = cheevo.clone();
+    let face = slot_ui::cheevo_face(&cheevo);
+    let (w, h) = (face.w, face.h);
+    let tex = upload(compositor, &mut state.tex, face);
+    app.set_cheevo_face(Some((tex, w, h)));
+    state.shown = Some(cheevo);
 }
 
 fn sync_bt_setup(app: &mut App, compositor: &mut Compositor, state: &mut BtSetupFace) {

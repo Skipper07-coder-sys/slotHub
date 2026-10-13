@@ -2,6 +2,7 @@ use std::fmt;
 use std::path::Path;
 
 use crate::link::Link;
+use crate::ra::RaRegion;
 use crate::rumble::Rumble;
 
 pub const GBA_W: u32 = 240;
@@ -99,6 +100,11 @@ pub trait RetroCore: Send {
     fn start_link(&mut self, _client_id: u16) {}
     fn pump_link(&mut self) {}
     fn stop_link(&mut self) {}
+    /// The GBA's memory as RetroAchievements numbers it, once the core has
+    /// said where it is: mGBA does on its first frame.
+    fn ra_memory(&self) -> Vec<RaRegion> {
+        Vec::new()
+    }
 }
 
 #[cfg(test)]

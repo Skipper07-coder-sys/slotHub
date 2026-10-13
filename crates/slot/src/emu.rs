@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::cable::{self, Cable};
+use slot_cheevos::{Cheevos, Region};
 use slot_retro::{
     ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
 };
@@ -80,6 +81,80 @@ enum Cmd {
     EndLink,
     BeginCable(u8, Box<dyn LinkChannel>),
     SetOption(String, String),
+    Cheevos(Arc<dyn Cheevos>, Receiver<String>),
+}
+
+/// How often to look again for the core's memory when it has not said yet.
+const RA_MAP_EVERY: u32 = 60;
+
+/// RetroAchievements on the emulator thread: the game's hash on its way,
+/// the memory once the core has said where it is, and a frame each frame.
+/// The game is loaded once the hash is in and the sign-in has gone through,
+/// which can be well into play when Wi-Fi comes up late.
+struct RaHook {
+    api: Arc<dyn Cheevos>,
+    hash: Option<Receiver<String>>,
+    md5: Option<String>,
+    frames: u32,
+    mapped: bool,
+    reset_due: bool,
+}
+
+impl RaHook {
+    fn frame(&mut self, core: &dyn RetroCore) {
+        self.take_hash();
+        self.frames = self.frames.wrapping_add(1);
+        if !self.mapped && self.frames % RA_MAP_EVERY == 1 {
+            let regions: Vec<Region> = core
+                .ra_memory()
+                .into_iter()
+                .map(|r| Region {
+                    start: r.ra_start,
+                    ptr: r.ptr,
+                    len: r.len,
+                })
+                .collect();
+            if !regions.is_empty() {
+                eprintln!("slot: cheevos: {} memory regions", regions.len());
+                self.api.set_memory(regions);
+                self.mapped = true;
+            }
+        }
+        if self.reset_due {
+            self.reset_due = false;
+            self.api.reset_progress();
+        }
+        self.api.do_frame();
+    }
+
+    fn idle(&mut self) {
+        self.take_hash();
+        self.api.idle();
+    }
+
+    fn take_hash(&mut self) {
+        if let Some(rx) = &self.hash {
+            match rx.try_recv() {
+                Ok(md5) => {
+                    self.md5 = Some(md5);
+                    self.hash = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.hash = None,
+            }
+        }
+        if self.md5.is_some() && self.api.signed_in() {
+            if let Some(md5) = self.md5.take() {
+                self.api.load_game(&md5);
+            }
+        }
+    }
+
+    /// Ends this game's achievements; the memory goes with the core.
+    fn end(self) {
+        self.api.set_memory(Vec::new());
+        self.api.unload_game();
+    }
 }
 
 struct Shared {
@@ -241,6 +316,12 @@ impl EmuHandle {
 
     pub fn end_link(&self) {
         request(&self.cmds, &self.shared, Cmd::EndLink);
+    }
+
+    /// Runs RetroAchievements alongside this game, loading it in rcheevos
+    /// once its hash arrives on `hash`.
+    pub fn attach_cheevos(&self, api: Arc<dyn Cheevos>, hash: Receiver<String>) {
+        request(&self.cmds, &self.shared, Cmd::Cheevos(api, hash));
     }
 
     pub fn set_option(&self, key: &str, value: &str) {
@@ -558,9 +639,17 @@ impl Worker {
         let mut cable_core = Duration::ZERO;
         let mut cable_wait = Duration::ZERO;
         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
+        let mut ra: Option<RaHook> = None;
         while !self.shared.stop.load(Ordering::Relaxed) {
             for cmd in self.cmds.try_iter() {
-                self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+                self.apply(
+                    cmd,
+                    core.as_mut(),
+                    &mut transport,
+                    &mut cable,
+                    &link,
+                    &mut ra,
+                );
             }
 
             if let Some(t) = transport.as_mut() {
@@ -638,6 +727,9 @@ impl Worker {
                     if let Err(e) = core.unserialize(&state) {
                         eprintln!("slot: rewind: {e}");
                     }
+                    if let Some(r) = ra.as_mut() {
+                        r.reset_due = true;
+                    }
                     core.set_frame_skip(false);
                     core.run_frame(ButtonMask(0));
                     self.publish(core.video_xrgb8888());
@@ -705,6 +797,9 @@ impl Worker {
                             }
                         }
                         None => core.run_frame(input),
+                    }
+                    if let Some(r) = ra.as_mut() {
+                        r.frame(core.as_ref());
                     }
                     let took = frame_began.elapsed();
                     if last {
@@ -806,6 +901,12 @@ impl Worker {
                 }
             }
 
+            if ceiling == 0 && !rewinding {
+                if let Some(r) = ra.as_mut() {
+                    r.idle();
+                }
+            }
+
             if let Some((began, core_time)) = fast_span.take() {
                 post_cost = blend(post_cost, began.elapsed().saturating_sub(core_time));
             }
@@ -824,7 +925,14 @@ impl Worker {
                         }
                         Wait::Request => {
                             for cmd in self.cmds.try_iter() {
-                                self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+                                self.apply(
+                                    cmd,
+                                    core.as_mut(),
+                                    &mut transport,
+                                    &mut cable,
+                                    &link,
+                                    &mut ra,
+                                );
                             }
                             continue;
                         }
@@ -847,7 +955,17 @@ impl Worker {
             }
         }
         for cmd in self.cmds.try_iter() {
-            self.apply(cmd, core.as_mut(), &mut transport, &mut cable, &link);
+            self.apply(
+                cmd,
+                core.as_mut(),
+                &mut transport,
+                &mut cable,
+                &link,
+                &mut ra,
+            );
+        }
+        if let Some(r) = ra.take() {
+            r.end();
         }
         ring.set_muted(false);
         ring.set_idle(false);
@@ -864,6 +982,7 @@ impl Worker {
         transport: &mut Option<Box<dyn LinkChannel>>,
         cable: &mut Option<Cable>,
         link: &Link,
+        ra: &mut Option<RaHook>,
     ) {
         match cmd {
             Cmd::Save(reply) => match core.serialize() {
@@ -875,6 +994,9 @@ impl Worker {
             Cmd::Load(state) => {
                 if let Err(e) = core.unserialize(&self.for_core(state)) {
                     eprintln!("slot: {e}");
+                }
+                if let Some(r) = ra.as_mut() {
+                    r.reset_due = true;
                 }
             }
             Cmd::Sav(reply) => {
@@ -893,6 +1015,11 @@ impl Worker {
                 *transport = Some(t);
             }
             Cmd::BeginCable(player, t) => {
+                // Link play runs the host's game on both: no achievements.
+                if let Some(r) = ra.take() {
+                    eprintln!("slot: cheevos: off for link play");
+                    r.end();
+                }
                 self.shared.link_lost.store(false, Ordering::Relaxed);
                 self.shared.peer_ended.store(false, Ordering::Relaxed);
                 self.shared.bios_mismatch.store(false, Ordering::Relaxed);
@@ -915,6 +1042,19 @@ impl Worker {
             }
             Cmd::SetOption(key, value) => {
                 core.set_option(&key, &value);
+            }
+            Cmd::Cheevos(api, hash) => {
+                if let Some(old) = ra.take() {
+                    old.end();
+                }
+                *ra = Some(RaHook {
+                    api,
+                    hash: Some(hash),
+                    md5: None,
+                    frames: 0,
+                    mapped: false,
+                    reset_due: false,
+                });
             }
             Cmd::EndLink => {
                 self.shared.link_lost.store(false, Ordering::Relaxed);

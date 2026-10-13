@@ -10,6 +10,7 @@ use libloading::Library;
 use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
 use crate::link::Link;
+use crate::ra::{gba_regions, MapEntry, RaRegion};
 use crate::rumble::Rumble;
 
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
@@ -38,6 +39,7 @@ struct Host {
     options: std::collections::HashMap<String, std::ffi::CString>,
     options_dirty: bool,
     declared: std::collections::HashMap<String, Vec<String>>,
+    maps: Vec<MapEntry>,
 }
 
 thread_local! {
@@ -201,6 +203,27 @@ unsafe extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
             let cb = std::ptr::read(data as *const AudioBufferStatusCallback);
             with_host(|h| h.audio_status = cb.callback).is_some()
         }
+        SET_MEMORY_MAPS => {
+            let Some(map) = (data as *const MemoryMap).as_ref() else {
+                return false;
+            };
+            let mut maps = Vec::new();
+            if !map.descriptors.is_null() {
+                for i in 0..map.num_descriptors.min(256) as usize {
+                    let d = &*map.descriptors.add(i);
+                    maps.push(MapEntry {
+                        ptr: d.ptr as usize,
+                        offset: d.offset,
+                        start: d.start,
+                        select: d.select,
+                        disconnect: d.disconnect,
+                        len: d.len,
+                    });
+                }
+            }
+            with_host(|h| h.maps = maps).is_some()
+        }
+        SET_SUPPORT_ACHIEVEMENTS => true,
         SET_NETPACKET_INTERFACE => {
             if data.is_null() {
                 return with_host(|h| h.netpacket = None).is_some();
@@ -484,6 +507,7 @@ impl LibretroCore {
             options: std::collections::HashMap::new(),
             options_dirty: false,
             declared: std::collections::HashMap::new(),
+            maps: Vec::new(),
         });
         unsafe {
             let _a = Active::bind(&mut host);
@@ -689,6 +713,15 @@ impl RetroCore for LibretroCore {
         let _a = Active::bind(&mut self.host);
         unsafe { halt_link() };
     }
+
+    fn ra_memory(&self) -> Vec<RaRegion> {
+        let area = |id| self.memory(id).map(|m| (m.as_ptr(), m.len()));
+        gba_regions(
+            &self.host.maps,
+            area(MEMORY_SYSTEM_RAM),
+            area(MEMORY_SAVE_RAM),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -715,6 +748,7 @@ mod tests {
             options,
             options_dirty,
             declared: HashMap::new(),
+            maps: Vec::new(),
         })
     }
 
@@ -1651,6 +1685,51 @@ mod tests {
         assert!(
             can_dupe,
             "the frontend does keep the last frame, so it must say so"
+        );
+    }
+
+    #[test]
+    fn a_cores_memory_maps_are_kept_for_retroachievements() {
+        assert_eq!(SET_MEMORY_MAPS, 65572);
+        assert_eq!(SET_SUPPORT_ACHIEVEMENTS, 65578);
+        let mut host = host_with(HashMap::new(), false);
+        let iwram = vec![0u8; 0x8000];
+        let descriptors = [MemoryDescriptor {
+            flags: 0,
+            ptr: iwram.as_ptr() as *mut c_void,
+            offset: 0,
+            start: 0x0300_0000,
+            select: 0xFF00_0000,
+            disconnect: 0,
+            len: 0x8000,
+            addrspace: ptr::null(),
+        }];
+        let map = MemoryMap {
+            descriptors: descriptors.as_ptr(),
+            num_descriptors: 1,
+        };
+        let (maps_ok, cheevos_ok) = {
+            let _active = Active::bind(&mut host);
+            let mut yes = true;
+            unsafe {
+                (
+                    environment(SET_MEMORY_MAPS, &map as *const MemoryMap as *mut c_void),
+                    environment(
+                        SET_SUPPORT_ACHIEVEMENTS,
+                        &mut yes as *mut bool as *mut c_void,
+                    ),
+                )
+            }
+        };
+        assert!(maps_ok && cheevos_ok);
+        let regions = gba_regions(&host.maps, None, None);
+        assert_eq!(
+            regions,
+            [RaRegion {
+                ra_start: 0,
+                ptr: iwram.as_ptr(),
+                len: 0x8000
+            }]
         );
     }
 

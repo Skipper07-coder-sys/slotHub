@@ -1,5 +1,6 @@
 use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 
+use crate::keyboard::{KeyPress, Keyboard, KEY_H};
 use crate::plate::{hint_face, UndoFace, HINT_H};
 use crate::text::{self, Layout};
 
@@ -21,40 +22,17 @@ pub(crate) const ROW_H: u32 = 44;
 pub(crate) const ROW_GAP: u32 = 6;
 pub(crate) const ROWS_SHOWN: usize = 7;
 
-const FIELD_Y: u32 = 64;
-const FIELD_H: u32 = 48;
-const GRID_Y: u32 = 124;
-const KEY_W: u32 = 60;
-const KEY_H: u32 = 50;
-const KEY_GAP: u32 = 6;
-const COLS: usize = 10;
-const ACTIONS: [Action; 4] = [Action::Page, Action::Space, Action::Delete, Action::Done];
-
 const HINT_Y: u32 = 444;
 const HINT_GAP: u32 = 18;
 
 pub const PSK_MIN: usize = 8;
 pub const PSK_MAX: usize = 63;
 
-const PAGES: [[&str; 4]; 3] = [
-    ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"],
-    ["1234567890", "QWERTYUIOP", "ASDFGHJKL\"", "ZXCVBNM<>_"],
-    ["!@#$%^&*()", "`~-_=+[]{}", "\\|;:'\",.<>", "/?"],
-];
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WifiNetwork {
     pub ssid: String,
     pub secured: bool,
     pub signal: i32,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-enum Action {
-    Page,
-    Space,
-    Delete,
-    Done,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -66,10 +44,7 @@ pub enum WifiSetup {
     },
     Keys {
         ssid: String,
-        typed: String,
-        page: usize,
-        row: usize,
-        col: usize,
+        keys: Keyboard,
     },
 }
 
@@ -105,16 +80,13 @@ impl WifiSetup {
     pub fn password(ssid: &str) -> WifiSetup {
         WifiSetup::Keys {
             ssid: ssid.to_string(),
-            typed: String::new(),
-            page: 0,
-            row: 0,
-            col: 0,
+            keys: Keyboard::new(PSK_MAX),
         }
     }
 
     pub fn typed(&self) -> Option<&str> {
         match self {
-            WifiSetup::Keys { typed, .. } => Some(typed),
+            WifiSetup::Keys { keys, .. } => Some(keys.typed()),
             _ => None,
         }
     }
@@ -148,51 +120,11 @@ impl WifiSetup {
                 }
                 SetupOutcome::Stay
             }
-            WifiSetup::Keys {
-                ssid,
-                typed,
-                page,
-                row,
-                col,
-            } => {
-                let rows = PAGES[*page].len();
-                match key {
-                    SetupKey::Up => *row = (*row + rows) % (rows + 1),
-                    SetupKey::Down => *row = (*row + 1) % (rows + 1),
-                    SetupKey::Left => {
-                        let w = row_len(*page, *row);
-                        *col = ((*col).min(w - 1) + w - 1) % w;
-                    }
-                    SetupKey::Right => {
-                        let w = row_len(*page, *row);
-                        *col = ((*col).min(w - 1) + 1) % w;
-                    }
-                    SetupKey::B => {
-                        if typed.pop().is_none() {
-                            return SetupOutcome::Rescan;
-                        }
-                    }
-                    SetupKey::X => *page = (*page + 1) % PAGES.len(),
-                    SetupKey::Y => push(typed, ' '),
-                    SetupKey::Start => return done(ssid, typed),
-                    SetupKey::A => {
-                        if *row == rows {
-                            match ACTIONS[(*col).min(ACTIONS.len() - 1)] {
-                                Action::Page => *page = (*page + 1) % PAGES.len(),
-                                Action::Space => push(typed, ' '),
-                                Action::Delete => {
-                                    typed.pop();
-                                }
-                                Action::Done => return done(ssid, typed),
-                            }
-                        } else if let Some(c) = PAGES[*page][*row].chars().nth(*col) {
-                            push(typed, c);
-                        }
-                    }
-                }
-                *col = (*col).min(row_len(*page, *row) - 1);
-                SetupOutcome::Stay
-            }
+            WifiSetup::Keys { ssid, keys } => match keys.press(key) {
+                KeyPress::Stay => SetupOutcome::Stay,
+                KeyPress::Empty => SetupOutcome::Rescan,
+                KeyPress::Done => done(ssid, keys.typed()),
+            },
         }
     }
 
@@ -222,48 +154,10 @@ impl WifiSetup {
                 }
                 canvas.hints(&[("B", "Back"), ("X", "Rescan"), ("A", "Join")]);
             }
-            WifiSetup::Keys {
-                ssid,
-                typed,
-                page,
-                row,
-                col,
-            } => {
+            WifiSetup::Keys { ssid, keys } => {
                 let title = format!("Password for {ssid}");
                 canvas.text_centred(&title, TITLE_Y, TITLE_H, TITLE_PX, INK);
-                canvas.fill(EDGE, FIELD_Y, OUT_W - 2 * EDGE, FIELD_H, PAPER);
-                let shown = format!("{typed}_");
-                canvas.text_tail(
-                    &shown,
-                    EDGE + 14,
-                    FIELD_Y,
-                    OUT_W - 2 * EDGE - 28,
-                    FIELD_H,
-                    INK,
-                );
-                let grid_w = COLS as u32 * (KEY_W + KEY_GAP) - KEY_GAP;
-                let x0 = (OUT_W - grid_w) / 2;
-                for (r, keys) in PAGES[*page].iter().enumerate() {
-                    for (c, ch) in keys.chars().enumerate() {
-                        let x = x0 + c as u32 * (KEY_W + KEY_GAP);
-                        let y = GRID_Y + r as u32 * (KEY_H + KEY_GAP);
-                        let lit = r == *row && c == *col;
-                        canvas.key(&ch.to_string(), x, y, KEY_W, lit);
-                    }
-                }
-                let action_y = GRID_Y + PAGES[*page].len() as u32 * (KEY_H + KEY_GAP);
-                let wide = (grid_w - KEY_GAP * (ACTIONS.len() as u32 - 1)) / ACTIONS.len() as u32;
-                for (i, action) in ACTIONS.iter().enumerate() {
-                    let x = x0 + i as u32 * (wide + KEY_GAP);
-                    let lit = *row == PAGES[*page].len() && *col == i;
-                    let label = match action {
-                        Action::Page => ["ABC", "#+=", "abc"][*page],
-                        Action::Space => "Space",
-                        Action::Delete => "Delete",
-                        Action::Done => "Join",
-                    };
-                    canvas.key(label, x, action_y, wide, lit);
-                }
+                keys.draw(&mut canvas, "Join");
                 canvas.hints(&[
                     ("B", "Delete"),
                     ("X", "ABC #+="),
@@ -293,18 +187,6 @@ impl WifiSetup {
                 alpha: 1.0,
             });
         }
-    }
-}
-
-fn row_len(page: usize, row: usize) -> usize {
-    PAGES[page]
-        .get(row)
-        .map_or(ACTIONS.len(), |keys| keys.chars().count())
-}
-
-fn push(typed: &mut String, c: char) {
-    if typed.chars().count() < PSK_MAX {
-        typed.push(c);
     }
 }
 
@@ -430,7 +312,7 @@ impl Canvas {
     }
 
     // Long passwords keep their end in view, where the typing happens.
-    fn text_tail(&mut self, s: &str, x: u32, y: u32, max_w: u32, h: u32, ink: [u8; 3]) {
+    pub(crate) fn text_tail(&mut self, s: &str, x: u32, y: u32, max_w: u32, h: u32, ink: [u8; 3]) {
         let Some(font) = text::label_font() else {
             return;
         };
@@ -447,7 +329,7 @@ impl Canvas {
         self.text_left(&tail, x, y, max_w, h, ink);
     }
 
-    fn key(&mut self, label: &str, x: u32, y: u32, w: u32, lit: bool) {
+    pub(crate) fn key(&mut self, label: &str, x: u32, y: u32, w: u32, lit: bool) {
         let (bg, ink) = if lit { (LIT, LIT_INK) } else { (PAPER, INK) };
         self.fill(x, y, w, KEY_H, bg);
         let (buf, bw) = self.line(label, BODY_PX, w - 4, KEY_H, ink);
