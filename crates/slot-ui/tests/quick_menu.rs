@@ -177,6 +177,8 @@ fn the_values_read_as_the_menu_prints_them() {
             "Retro",
             "Bevel",
             "CRT",
+            "LCD Grid",
+            "Curved CRT",
             "Connected",
             "Not Connected",
             "Starting...",

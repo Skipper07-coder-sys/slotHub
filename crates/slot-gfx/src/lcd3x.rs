@@ -20,6 +20,8 @@ pub enum ScreenEffect {
     Retro,
     Bevel,
     Crt,
+    LcdGrid,
+    CurvedCrt,
 }
 
 impl ScreenEffect {

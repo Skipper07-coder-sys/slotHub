@@ -70,6 +70,31 @@ vec2 grid_band(vec2 x) {
 float dot_weight(vec2 f, vec2 o, float bloom) {
     return exp(-4.0 * length(f - (o + vec2(0.5))) * bloom);
 }
+// lcd-grid-v2: integrals of (1 - x^2 - x^4 + x^6)^2 and (1 - 2x^4 + x^6)^2.
+float smear_x(float z) {
+    float z2 = z * z;
+    return z * (1.0 + z2 * (-2.0 / 3.0 + z2 * (-1.0 / 5.0 + z2 * (4.0 / 7.0
+        + z2 * (-1.0 / 9.0 + z2 * (-2.0 / 11.0 + z2 * (1.0 / 13.0)))))));
+}
+float smear_y(float z) {
+    float z2 = z * z;
+    return z * (1.0 + z2 * (0.0 + z2 * (-4.0 / 5.0 + z2 * (2.0 / 7.0
+        + z2 * (4.0 / 9.0 + z2 * (-4.0 / 11.0 + z2 * (1.0 / 13.0)))))));
+}
+float smear(float x, float dx, float d, bool across) {
+    float lo = clamp((x - dx * 0.5) / d, -1.0, 1.0);
+    float hi = clamp((x + dx * 0.5) / d, -1.0, 1.0);
+    float area = across ? smear_x(hi) - smear_x(lo) : smear_y(hi) - smear_y(lo);
+    return d * area / dx;
+}
+vec3 lcd_texel(vec2 at) {
+    return pow(1.5 * texture2D(u_game, (at + 0.5) / u_src).rgb, vec3(2.2));
+}
+// zfast_crt_geo: NTSC-J (D93) to Rec709 D65, for colours squared on the way in.
+const mat3 P22D93 = mat3(
+    1.00000, 0.00000, -0.06173,
+    0.07111, 0.96887, -0.01136,
+    0.00000, 0.08197, 1.07280);
 vec3 soft_texel(vec2 p) {
     vec2 t = p - 0.5;
     vec2 i = floor(t);
@@ -87,6 +112,47 @@ void main() {
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
+    } else if (u_mode > 9.5) {
+        vec2 span = u_pic.zw - u_pic.xy;
+        vec2 q = (uv - u_pic.xy) / span;
+        vec2 w = q * 2.0 - 1.0;
+        w *= vec2(1.0 + w.y * w.y * 0.0276, 1.0 + w.x * w.x * 0.0414);
+        w = w * 0.5 + 0.5;
+        vec2 corner = min(w, 1.0 - w);
+        corner.x = 0.0001 / corner.x;
+        vec2 edge = q * (1.0 - q);
+        float vig = min(sqrt(edge.x * edge.y * 46.0), 1.0);
+        vec2 t = (u_pic.xy + w * span) * u_src;
+        float row = floor(t.y - 0.5) + 0.5;
+        float fy = t.y - 0.5 - row;
+        float y2 = fy * fy;
+        c = soft_texel(vec2(t.x, row + 0.5 + 4.0 * y2 * fy));
+        float mask = 1.0 - 0.5 * step(0.5, fract(floor(gl_FragCoord.x) * 0.5));
+        c = max((c * c) * (P22D93 * vig), 0.0);
+        float scan = 1.5 - 7.0 * (y2 - y2 * y2);
+        c *= mix(scan * mask, 1.0, dot(c, vec3(0.26667)));
+        vec3 power = vec3(1.0 / ((-0.0325 * 7.0 + 1.0) * (-0.311 * 0.5 + 1.0)) - 1.2);
+        vec3 cir = (c - 1.0) * (c - 1.0);
+        c = mix(sqrt(c), sqrt(max(1.0 - cir, 0.0)), power);
+        if (corner.y <= corner.x || corner.x < 0.0001) {
+            c = vec3(0.0);
+        }
+    } else if (u_mode > 8.5) {
+        vec2 tl = floor(uv * u_src - 0.4999);
+        float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;
+        float rx = ps.x * 3.0;
+        vec3 lcol = vec3(smear(sx + 1.0, rx, 1.5, true), smear(sx, rx, 1.5, true),
+                         smear(sx - 1.0, rx, 1.5, true));
+        vec3 rcol = vec3(smear(sx - 2.0, rx, 1.5, true), smear(sx - 3.0, rx, 1.5, true),
+                         smear(sx - 4.0, rx, 1.5, true));
+        float sy = uv.y * u_src.y - 0.4999 - tl.y;
+        float tcol = smear(sy, ps.y, 0.63, false);
+        float bcol = smear(sy - 1.0, ps.y, 0.63, false);
+        vec3 sum = lcd_texel(tl) * lcol * tcol
+                 + lcd_texel(tl + vec2(1.0, 0.0)) * rcol * tcol
+                 + lcd_texel(tl + vec2(0.0, 1.0)) * lcol * bcol
+                 + lcd_texel(tl + vec2(1.0, 1.0)) * rcol * bcol;
+        c = pow(sum * pow(0.75, 2.2), vec3(1.0 / 2.2));
     } else if (u_mode > 7.5) {
         vec2 p = uv * u_src;
         vec2 i = floor(p) + 0.5;
