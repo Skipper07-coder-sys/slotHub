@@ -554,9 +554,17 @@ fn hash_later(rom: PathBuf, console: slot_retro::RaConsole) -> std::sync::mpsc::
     rx
 }
 
+/// With this file in System/, slot logs as if SLOT_TRACE were set. It goes
+/// with System, so an update turns it off.
+pub const TRACE_FLAG: &str = "System/trace.on";
+
 pub(crate) fn trace() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("SLOT_TRACE").is_some())
+    *ON.get_or_init(|| {
+        let card = std::env::var_os("SLOT_ROOT").unwrap_or_else(|| "/mnt/sdcard".into());
+        std::env::var_os("SLOT_TRACE").is_some()
+            || std::path::Path::new(&card).join(TRACE_FLAG).is_file()
+    })
 }
 
 fn launch(step: &str) {

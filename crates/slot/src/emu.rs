@@ -663,6 +663,7 @@ impl Worker {
         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
         let mut ra: Option<RaHook> = None;
         let mut runahead = RunAhead::default();
+        let mut pace = Pace::default();
         while !self.shared.stop.load(Ordering::Relaxed) {
             let pending: Vec<Cmd> = self.cmds.try_iter().collect();
             if !pending.is_empty() {
@@ -857,6 +858,7 @@ impl Worker {
                     }
                 }
                 let core_time = began.elapsed();
+                pace.core(core_time, ran);
                 if ahead == 0 {
                     cost.measured(skipped, drawn);
                 }
@@ -956,6 +958,7 @@ impl Worker {
                         eprintln!(
                             "slot: audio: {queued}/{target} queued, {dropped} dropped, {starved} starved, locked {lock} at {scale:.5}"
                         );
+                        pace.report(ahead);
                     }
                 }
             }
@@ -976,6 +979,7 @@ impl Worker {
                 loop {
                     match self.next_tick(served, until) {
                         Wait::Tick(tick) => {
+                            pace.ticks(tick.saturating_sub(served));
                             served = tick;
                             stalled = false;
                             if let Some(measured) = rate.served(Instant::now(), tick) {
@@ -1000,6 +1004,7 @@ impl Worker {
                             continue;
                         }
                         Wait::Late => {
+                            pace.late += 1;
                             rate.stalled();
                             stalled = true;
                         }
@@ -1266,6 +1271,64 @@ impl FrameCost {
             Some(skip) => follow(self.skip, skip),
             None => self.skip.min(self.draw),
         };
+    }
+}
+
+/// Frame pacing over a trace window, for `SLOT_TRACE`.
+struct Pace {
+    began: Instant,
+    presents: u32,
+    frames: u32,
+    core: Duration,
+    worst: Duration,
+    over: u32,
+    skipped: u64,
+    late: u32,
+}
+
+impl Default for Pace {
+    fn default() -> Self {
+        Pace {
+            began: Instant::now(),
+            presents: 0,
+            frames: 0,
+            core: Duration::ZERO,
+            worst: Duration::ZERO,
+            over: 0,
+            skipped: 0,
+            late: 0,
+        }
+    }
+}
+
+impl Pace {
+    fn core(&mut self, took: Duration, ran: u32) {
+        self.presents += 1;
+        self.frames += ran;
+        self.core += took;
+        self.worst = self.worst.max(took);
+        self.over += u32::from(took > Duration::from_millis(12));
+    }
+
+    /// A display tick that moved on by more than one skipped a present.
+    fn ticks(&mut self, by: u64) {
+        self.skipped += by.saturating_sub(1);
+    }
+
+    fn report(&mut self, ahead: u32) {
+        let secs = self.began.elapsed().as_secs_f64();
+        let n = self.presents.max(1);
+        eprintln!(
+            "slot: pace: {:.1} presents/s, {:.1} frames/s, core {:.1} ms avg {:.1} max, {} over 12 ms, {} ticks skipped, {} late, run-ahead {ahead}",
+            f64::from(self.presents) / secs,
+            f64::from(self.frames) / secs,
+            self.core.as_secs_f64() * 1e3 / f64::from(n),
+            self.worst.as_secs_f64() * 1e3,
+            self.over,
+            self.skipped,
+            self.late,
+        );
+        *self = Pace::default();
     }
 }
 
