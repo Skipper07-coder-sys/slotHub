@@ -1,7 +1,10 @@
 #!/bin/sh
-# Game artwork: fetches a label for every game that has no label yet, from
-# the libretro thumbnail server RetroArch uses (thumbnails.libretro.com). The
-# game's logo comes first, since slot puts it on the cart's label the way a
+# Game artwork: fetches a label for every game that has no label yet. First
+# choice is the real one: the printed label scanned from a cart, from the set
+# slot's Cart Studio uses (art.slot-cfw.fyi), filed under the ROM's CRC32, so
+# only a known dump finds it. Otherwise it comes from the libretro thumbnail
+# server RetroArch uses (thumbnails.libretro.com). The
+# game's logo comes first there, since slot puts it on the cart's label the way a
 # real cartridge shows it; the box is the fallback. Art is named after
 # No-Intro game names, so a ROM called
 # "Pokemon - Emerald Version (USA, Europe).gba" finds its art; a ROM whose
@@ -23,6 +26,7 @@ CURL="${AGS_CURL:-curl}"
 SERVER="${AGS_ART_SERVER:-https://thumbnails.libretro.com}"
 KINDS="${AGS_ART_KINDS:-Named_Logos Named_Boxarts}"
 RUN="${AGS_ART_RUN:-/tmp/slot-art}"
+REAL="${AGS_ART_REAL-https://art.slot-cfw.fyi}"
 SGDB="${AGS_ART_SGDB:-https://www.steamgriddb.com/api/v2}"
 SGDB_KEY_FILE="${AGS_ART_SGDB_KEY:-$SD/Config/steamgriddb.conf}"
 SERIALS="${AGS_ART_SERIALS:-https://raw.githubusercontent.com/libretro/libretro-database/master/metadat/serial/Nintendo%20-%20Game%20Boy%20Advance.dat}"
@@ -116,6 +120,35 @@ fetch_one() {
 	return 1
 }
 
+# The ROM's CRC32 in upper-case hex: gzip's trailer holds it, low byte first.
+crc_of() {
+	gzip -c < "$1" 2>/dev/null | tail -c 8 | head -c 4 | od -An -tx1 |
+		awk '{ for (i = NF; i >= 1; i--) printf "%s", toupper($i) } END { print "" }'
+}
+
+# The scan of the cart's printed label, under the ROM's CRC32. A GB game can
+# be filed under GBC and the other way round, so both are tried for those.
+real_label() {
+	[ -n "$REAL" ] || return 1
+	crc="$(crc_of "$3")"
+	case "$crc" in
+	[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;;
+	*) return 1 ;;
+	esac
+	case "$1" in
+	GBA) shelves=GBA ;;
+	GB) shelves="GB GBC" ;;
+	*) shelves="GBC GB" ;;
+	esac
+	for shelf in $shelves; do
+		if get "$REAL/$shelf/support-texture/$crc.png" "$4.part"; then
+			mv -f "$4.part" "$4" && log "$2: real label, $shelf $crc" && return 0
+		fi
+	done
+	rm -f "$4.part"
+	return 1
+}
+
 # The four-letter game code in a GBA header (offset 0xAC), e.g. BPRE.
 game_code() {
 	code="$(dd if="$1" bs=1 skip=172 count=4 2>/dev/null)"
@@ -201,9 +234,11 @@ sgdb_find() {
 			}'
 }
 
-# A logo by name, a fan-made logo by name, then by game code, then the same
-# for the box. fetch_one's variables are global, so these keep their own.
+# The real label by checksum, then a logo by name, a fan-made logo by name,
+# then by game code, then the same for the box. fetch_one's variables are
+# global, so these keep their own.
 art_for() {
+	real_label "$1" "$2" "$3" "$4" && return 0
 	code=""
 	basegame=""
 	looked=""
