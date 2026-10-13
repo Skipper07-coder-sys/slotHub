@@ -481,3 +481,25 @@ fn without_a_wake_clock_the_handheld_does_not_sleep() {
         ""
     );
 }
+
+#[test]
+fn a_restart_skips_the_charge_only_boot_once_and_takes_its_mark_back() {
+    let d = tempfile::tempdir().unwrap();
+    let skip = d.path().join("no-charger-off");
+    slot_power::mark_restart(&skip).unwrap();
+    assert!(skip.exists());
+    assert!(slot_power::clear_restart_mark(&skip).unwrap());
+    assert!(!skip.exists());
+    assert!(!slot_power::clear_restart_mark(&skip).unwrap());
+}
+
+#[test]
+fn an_opt_out_set_by_hand_is_left_alone() {
+    let d = tempfile::tempdir().unwrap();
+    let skip = d.path().join("no-charger-off");
+    fs::write(&skip, "").unwrap();
+    slot_power::mark_restart(&skip).unwrap();
+    assert_eq!(fs::read_to_string(&skip).unwrap(), "");
+    assert!(!slot_power::clear_restart_mark(&skip).unwrap());
+    assert!(skip.exists());
+}
