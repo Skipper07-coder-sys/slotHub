@@ -141,13 +141,16 @@ pub fn parse_lan_reply(reply: &str) -> Option<std::net::Ipv4Addr> {
     words.next()?.parse().ok()
 }
 
-/// A device already on the home network links over it and this returns at once: there is no
-/// radio to bring up, and home Wi-Fi stays connected. Only a device with no home connection
-/// gets the private network, which pauses home Wi-Fi for the session.
+/// Home Wi-Fi, when the player picked it: no radio to bring up, home Wi-Fi stays connected and
+/// this returns at once, or fails if home Wi-Fi has gone since. Otherwise the private network,
+/// which pauses home Wi-Fi for the session. Never one for the other: the other handheld is
+/// looking on the network its player picked.
 #[cfg(feature = "device")]
-pub fn up(role: LinkRole, cancel: &Cancel) -> Result<LinkNet, RadioFail> {
-    if let Some(local) = home_address() {
-        return Ok(LinkNet::Lan { local });
+pub fn up(role: LinkRole, home: bool, cancel: &Cancel) -> Result<LinkNet, RadioFail> {
+    if home {
+        return home_address()
+            .map(|local| LinkNet::Lan { local })
+            .ok_or_else(|| RadioFail::Radio("home Wi-Fi is not connected".into()));
     }
     let mut child = link(role.arg())
         .spawn()
@@ -179,7 +182,7 @@ pub fn down() {
 }
 
 #[cfg(not(feature = "device"))]
-pub fn up(_role: LinkRole, _cancel: &Cancel) -> Result<LinkNet, RadioFail> {
+pub fn up(_role: LinkRole, _home: bool, _cancel: &Cancel) -> Result<LinkNet, RadioFail> {
     Ok(LinkNet::Direct)
 }
 

@@ -333,6 +333,7 @@ fn legend_faces() -> Vec<(TexId, Face)> {
                 LinkLegend::Ok => hint_face("A", "OK"),
                 LinkLegend::Back => hint_face("B", "Back"),
                 LinkLegend::EndLink => hint_face("A", "End Link"),
+                LinkLegend::Next => hint_face("A", "Next"),
             }
             .into();
             (TexId::from_raw(900 + k.index()), f)

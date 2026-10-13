@@ -168,11 +168,11 @@ pub struct LinkStarter {
 impl LinkStarter {
     /// The real thing: `link_radio` for the network, `TcpLink` for the socket. `game` is the
     /// cart's header code, which on the home network is how two handhelds know they are
-    /// running the same game.
-    pub fn spawn(role: LinkRole, port: u16, game: &str) -> LinkStarter {
+    /// running the same game. `home` is the network the player picked: home Wi-Fi, or direct.
+    pub fn spawn(role: LinkRole, port: u16, game: &str, home: bool) -> LinkStarter {
         let game = game.to_string();
         LinkStarter::spawn_net(
-            Box::new(link_radio::up),
+            Box::new(move |role, cancel| link_radio::up(role, home, cancel)),
             Box::new(link_radio::down),
             role,
             port,

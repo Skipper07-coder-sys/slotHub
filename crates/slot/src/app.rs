@@ -145,6 +145,12 @@ struct Reload {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GameMenu {
+    /// The first step when home Wi-Fi is connected: link over it, or over the handhelds' own
+    /// direct network. `role` is the one the next step will open on.
+    Network {
+        home: bool,
+        role: LinkRow,
+    },
     Pick(LinkRow),
     Working {
         role: LinkRow,
@@ -228,10 +234,11 @@ pub enum LinkLegend {
     Ok,
     Back,
     EndLink,
+    Next,
 }
 
 impl LinkLegend {
-    pub const ALL: [LinkLegend; 7] = [
+    pub const ALL: [LinkLegend; 8] = [
         LinkLegend::Cancel,
         LinkLegend::Mode,
         LinkLegend::Swap,
@@ -239,6 +246,7 @@ impl LinkLegend {
         LinkLegend::Ok,
         LinkLegend::Back,
         LinkLegend::EndLink,
+        LinkLegend::Next,
     ];
 
     pub fn index(self) -> usize {
@@ -322,6 +330,8 @@ pub struct App {
     link_sprites: Option<LinkSprites>,
     link_hardware: LinkKind,
     last_role: LinkRow,
+    /// The network picked for the link: home Wi-Fi, or the direct one.
+    link_home: bool,
     link_choices: HashMap<String, LinkKind>,
     link_loaded: Option<&'static str>,
     link_reload: Option<(String, &'static str)>,
@@ -550,6 +560,7 @@ impl App {
             link_sprites: None,
             link_hardware: LinkKind::Cable,
             last_role: LinkRow::Host,
+            link_home: true,
             link_choices: HashMap::new(),
             link_loaded: None,
             link_reload: None,
@@ -3741,11 +3752,15 @@ impl App {
         });
         if let Some(sprites) = &self.link_sprites {
             crate::link_screen::draw_link_art(menu, self.link_hardware, self.now(), sprites, out);
-            // Which network a link started now would use, read the way link_radio::up decides
-            // it: a device on the home network links over it.
-            crate::link_screen::draw_network_label(menu, self.net_live(), sprites, out);
+            // Which network the link uses: the one highlighted on the first step, then the
+            // one picked there.
+            crate::link_screen::draw_network_label(menu, self.link_home, sprites, out);
         }
         let line = match menu {
+            GameMenu::Network { home, .. } => self
+                .link_menu_faces
+                .get(LinkRow::ALL.len() + usize::from(!home))
+                .copied(),
             GameMenu::Pick(role) => self.link_menu_faces.get(role.index()).copied(),
             GameMenu::Working { step, .. } => self
                 .link_step_faces
@@ -3769,12 +3784,20 @@ impl App {
         }
         let switchable = self.seated().is_some_and(|stem| self.link_switchable(stem));
         let keys: &[LinkLegend] = match menu {
+            GameMenu::Network { .. } => &[LinkLegend::Cancel, LinkLegend::Swap, LinkLegend::Next],
             GameMenu::Pick(_) if switchable => &[
-                LinkLegend::Cancel,
+                if self.net_live() {
+                    LinkLegend::Back
+                } else {
+                    LinkLegend::Cancel
+                },
                 LinkLegend::Mode,
                 LinkLegend::Swap,
                 LinkLegend::Link,
             ],
+            GameMenu::Pick(_) if self.net_live() => {
+                &[LinkLegend::Back, LinkLegend::Swap, LinkLegend::Link]
+            }
             GameMenu::Pick(_) => &[LinkLegend::Cancel, LinkLegend::Swap, LinkLegend::Link],
             GameMenu::Working { .. } => &[LinkLegend::Cancel],
             GameMenu::Linked { opened: true, .. } => &[LinkLegend::Back, LinkLegend::EndLink],
@@ -4130,7 +4153,7 @@ impl App {
             }
             self.link_hardware = LinkKind::Cable;
             self.radio.ask(RadioJob::Warm);
-            self.game_menu = Some(GameMenu::Pick(self.last_role));
+            self.open_link_picker();
             return;
         }
         if self.platform != Platform::Gba {
@@ -4154,7 +4177,21 @@ impl App {
             .map_or(LinkKind::Cable, |stem| self.link_mode(stem).0);
         self.link_hardware = hardware;
         self.radio.ask(RadioJob::Warm);
-        self.game_menu = Some(GameMenu::Pick(self.last_role));
+        self.open_link_picker();
+    }
+
+    /// With home Wi-Fi connected the player first picks the network, then Host or Join.
+    /// Without it there is only the direct network, so the picker opens on Host or Join.
+    fn open_link_picker(&mut self) {
+        self.game_menu = Some(if self.net_live() {
+            GameMenu::Network {
+                home: self.link_home,
+                role: self.last_role,
+            }
+        } else {
+            self.link_home = false;
+            GameMenu::Pick(self.last_role)
+        });
     }
 
     fn game_menu_shortcut(&mut self) {
@@ -4203,6 +4240,17 @@ impl App {
             return;
         };
         match menu {
+            GameMenu::Network { home, role } => match action {
+                Action::GbaDown(Btn::Left) | Action::GbaDown(Btn::Right) => {
+                    self.game_menu = Some(GameMenu::Network { home: !home, role });
+                }
+                Action::GbaDown(Btn::A) => {
+                    self.link_home = home;
+                    self.game_menu = Some(GameMenu::Pick(role));
+                }
+                Action::GbaDown(Btn::B) | Action::GameMenu => self.close_game_menu(),
+                _ => {}
+            },
             GameMenu::Pick(role) => match action {
                 Action::GbaDown(Btn::Left) | Action::GbaDown(Btn::Right) => {
                     self.last_role = role.other();
@@ -4210,6 +4258,12 @@ impl App {
                 }
                 Action::GbaDown(Btn::Select) => self.switch_hardware(),
                 Action::GbaDown(Btn::A) => self.pick_link(role),
+                Action::GbaDown(Btn::B) if self.net_live() => {
+                    self.game_menu = Some(GameMenu::Network {
+                        home: self.link_home,
+                        role,
+                    });
+                }
                 Action::GbaDown(Btn::B) | Action::GameMenu => self.close_game_menu(),
                 _ => {}
             },
@@ -4278,7 +4332,7 @@ impl App {
     /// The real starter for this cart, which names its game to the other handheld by header code.
     fn spawn_link(&self, role: LinkRow) -> LinkStarter {
         let game = self.seated_cart().map_or("", |c| c.code.as_str());
-        LinkStarter::spawn(role.role(), link_port(), game)
+        LinkStarter::spawn(role.role(), link_port(), game, self.link_home)
     }
 
     fn pick_link(&mut self, role: LinkRow) {
