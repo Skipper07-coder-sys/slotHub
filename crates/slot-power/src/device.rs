@@ -602,6 +602,7 @@ impl Platform for DevicePlatform {
             return;
         }
         self.cpu = Some(mode);
+        self.set_gpu_floor(mode);
         let policies = self.sysfs.join("devices/system/cpu/cpufreq");
         let Ok(dirs) = fs::read_dir(&policies) else {
             return;
@@ -672,6 +673,42 @@ impl Platform for DevicePlatform {
             motor.play(on);
         }
     }
+}
+
+impl DevicePlatform {
+    /// The GPU's simple_ondemand never leaves its 420 MHz floor on the H700,
+    /// so a game's shader can run out of time. Full mode raises the floor to
+    /// the top clock; the other modes give it back ("0" = the driver's own).
+    fn set_gpu_floor(&self, mode: CpuMode) {
+        let Ok(dirs) = fs::read_dir(self.sysfs.join("class/devfreq")) else {
+            return;
+        };
+        for dir in dirs.flatten().map(|e| e.path()) {
+            let available =
+                fs::read_to_string(dir.join("available_frequencies")).unwrap_or_default();
+            let Some(top) = gpu_floor(&available, mode) else {
+                continue;
+            };
+            match fs::write(dir.join("min_freq"), &top) {
+                Ok(()) => eprintln!("slot: gpu: {mode:?}, floor {top}"),
+                Err(e) => eprintln!("slot: gpu: could not set the floor to {top}: {e}"),
+            }
+        }
+    }
+}
+
+/// What a devfreq device's `min_freq` should hold in this mode: its highest
+/// clock in Full mode, otherwise "0", the driver's own floor. None when the
+/// device lists no clocks.
+pub fn gpu_floor(available: &str, mode: CpuMode) -> Option<String> {
+    let top = available
+        .split_whitespace()
+        .filter_map(|f| f.parse::<u64>().ok())
+        .max()?;
+    Some(match mode {
+        CpuMode::Full => top.to_string(),
+        _ => "0".to_string(),
+    })
 }
 
 /// The first of the mode's governors that the kernel offers.

@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use slot_power::{
-    motor_change, pick_governor, rumble_node, Battery, Charge, CpuMode, DevicePlatform, LedState,
-    Platform,
+    gpu_floor, motor_change, pick_governor, rumble_node, Battery, Charge, CpuMode, DevicePlatform,
+    LedState, Platform,
 };
 use tempfile::TempDir;
 
@@ -481,6 +481,30 @@ fn the_cpu_mode_is_written_to_every_policy_once() {
     assert_eq!(governor(&d), "performance");
     p.set_cpu_mode(CpuMode::Rest);
     assert_eq!(governor(&d), "powersave");
+}
+
+#[test]
+fn a_game_holds_the_gpu_at_its_top_clock_and_the_menus_give_it_back() {
+    let h700 = "420000000 456000000 504000000 552000000 600000000 648000000\n";
+    assert_eq!(gpu_floor(h700, CpuMode::Full).as_deref(), Some("648000000"));
+    assert_eq!(gpu_floor(h700, CpuMode::Balanced).as_deref(), Some("0"));
+    assert_eq!(gpu_floor(h700, CpuMode::Rest).as_deref(), Some("0"));
+    assert_eq!(gpu_floor("", CpuMode::Full), None);
+
+    let d = sysfs("255", "87");
+    let gpu = d.path().join("class/devfreq/gpu");
+    fs::create_dir_all(&gpu).unwrap();
+    fs::write(gpu.join("available_frequencies"), h700).unwrap();
+    fs::write(gpu.join("min_freq"), "0\n").unwrap();
+    let floor = || fs::read_to_string(gpu.join("min_freq")).unwrap();
+    let mut p = platform(&d);
+    p.set_cpu_mode(CpuMode::Full);
+    assert_eq!(floor(), "648000000");
+    p.set_cpu_mode(CpuMode::Balanced);
+    assert_eq!(floor(), "0");
+    p.set_cpu_mode(CpuMode::Full);
+    p.set_cpu_mode(CpuMode::Rest);
+    assert_eq!(floor(), "0");
 }
 
 fn rtc(d: &TempDir, name: &str, wakeup: &str) -> PathBuf {
