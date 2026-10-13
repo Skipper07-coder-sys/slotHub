@@ -1089,3 +1089,86 @@ fn waiting_on_an_unlocked_worker_does_not_block() {
         "the wait blocked"
     );
 }
+
+#[derive(Default)]
+struct CountingCheevos {
+    signed_in: AtomicBool,
+    frames: AtomicUsize,
+    idles: AtomicUsize,
+    resets: AtomicUsize,
+    loaded: Mutex<Vec<String>>,
+    unloads: AtomicUsize,
+}
+
+impl slot_cheevos::Cheevos for CountingCheevos {
+    fn sign_in(&self, _username: &str, _password: slot_cheevos::Secret) {}
+    fn resume(&self, _username: &str, _token: &slot_cheevos::Secret) {}
+    fn sign_out(&self) {}
+    fn signed_in(&self) -> bool {
+        self.signed_in.load(Ordering::Relaxed)
+    }
+    fn load_game(&self, md5: &str) {
+        self.loaded.lock().unwrap().push(md5.into());
+    }
+    fn unload_game(&self) {
+        self.unloads.fetch_add(1, Ordering::Relaxed);
+    }
+    fn set_memory(&self, _regions: Vec<slot_cheevos::Region>) {}
+    fn do_frame(&self) {
+        self.frames.fetch_add(1, Ordering::Relaxed);
+    }
+    fn idle(&self) {
+        self.idles.fetch_add(1, Ordering::Relaxed);
+    }
+    fn reset_progress(&self) {
+        self.resets.fetch_add(1, Ordering::Relaxed);
+    }
+    fn take_events(&self) -> Vec<slot_cheevos::Event> {
+        Vec::new()
+    }
+}
+
+#[test]
+fn retroachievements_load_the_hashed_game_see_every_frame_and_unload_at_the_end() {
+    let emu = spawn();
+    let cheevos = Arc::new(CountingCheevos::default());
+    let (tx, rx) = mpsc::channel();
+    emu.attach_cheevos(cheevos.clone(), rx);
+    assert!(wait_for(|| cheevos.frames.load(Ordering::Relaxed) > 3));
+    assert!(cheevos.loaded.lock().unwrap().is_empty());
+    tx.send("0123456789abcdef0123456789abcdef".to_string())
+        .unwrap();
+    let frames = cheevos.frames.load(Ordering::Relaxed);
+    assert!(wait_for(
+        || cheevos.frames.load(Ordering::Relaxed) > frames + 3
+    ));
+    assert!(
+        cheevos.loaded.lock().unwrap().is_empty(),
+        "the game loaded before the sign-in went through"
+    );
+    cheevos.signed_in.store(true, Ordering::Relaxed);
+    assert!(wait_for(|| !cheevos.loaded.lock().unwrap().is_empty()));
+    assert_eq!(
+        *cheevos.loaded.lock().unwrap(),
+        ["0123456789abcdef0123456789abcdef"]
+    );
+
+    let state = emu
+        .request_state()
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    emu.request_load(state);
+    assert!(
+        wait_for(|| cheevos.resets.load(Ordering::Relaxed) == 1),
+        "a state load did not reset achievement progress"
+    );
+
+    emu.set_speed(Speed::Paused);
+    let idles = cheevos.idles.load(Ordering::Relaxed);
+    assert!(wait_for(
+        || cheevos.idles.load(Ordering::Relaxed) > idles + 2
+    ));
+
+    drop(emu);
+    assert_eq!(cheevos.unloads.load(Ordering::Relaxed), 1);
+}

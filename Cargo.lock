@@ -1871,6 +1871,7 @@ dependencies = [
  "libloading",
  "lz4_flex",
  "png 0.17.16",
+ "slot-cheevos",
  "slot-gfx",
  "slot-input",
  "slot-power",
@@ -1879,6 +1880,14 @@ dependencies = [
  "slot-ui",
  "tempfile",
  "winit",
+]
+
+[[package]]
+name = "slot-cheevos"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "tempfile",
 ]
 
 [[package]]

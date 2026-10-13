@@ -149,10 +149,14 @@ selftest_once() {
 	selftest
 }
 
-# Copy a log, dropping anything that looks like a password or key.
+# Copy a log, dropping anything that looks like a password or key: also
+# RetroAchievements' JSON "Token"/"Password" values and its form fields
+# &p= (password) and &t= (token).
 scrub() {
 	[ -f "$1" ] || return 0
-	sed -E 's/(psk|password|passphrase|api_?key|key|token)([=:] *| +)[^ ]*/\1\2[removed]/Ig' \
+	sed -E -e 's/("(token|password)" *: *")[^"]*"/\1[removed]"/Ig' \
+		-e 's/([&?](p|t)=)[^& ]*/\1[removed]/g' \
+		-e 's/(psk|password|passphrase|api_?key|key|token)([=:] *| +)[^ ]*/\1\2[removed]/Ig' \
 		"$1" > "$2" 2>/dev/null
 }
 

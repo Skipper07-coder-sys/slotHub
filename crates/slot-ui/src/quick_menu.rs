@@ -34,10 +34,11 @@ pub enum QuickRow {
     WifiArt,
     SelfTest,
     BugReport,
+    Cheevos,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 28] = [
+    pub const ALL: [QuickRow; 29] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -66,6 +67,7 @@ impl QuickRow {
         QuickRow::WifiArt,
         QuickRow::SelfTest,
         QuickRow::BugReport,
+        QuickRow::Cheevos,
     ];
 
     pub const MAIN: [QuickRow; 7] = [
@@ -105,7 +107,7 @@ impl QuickRow {
     ];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 11] = [
+    pub const LIVE: [QuickRow; 12] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
@@ -117,14 +119,16 @@ impl QuickRow {
         QuickRow::WifiArt,
         QuickRow::SelfTest,
         QuickRow::BugReport,
+        QuickRow::Cheevos,
     ];
 
-    pub const WIFI: [QuickRow; 5] = [
+    pub const WIFI: [QuickRow; 6] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
         QuickRow::WifiChoose,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
+        QuickRow::Cheevos,
     ];
 
     pub fn index(self) -> usize {
@@ -146,7 +150,8 @@ impl QuickRow {
             | QuickRow::WifiNetwork
             | QuickRow::WifiChoose
             | QuickRow::WifiDrive
-            | QuickRow::WifiArt => &QuickRow::WIFI,
+            | QuickRow::WifiArt
+            | QuickRow::Cheevos => &QuickRow::WIFI,
             QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
             | QuickRow::SelfTest
@@ -236,6 +241,7 @@ impl QuickRow {
             QuickRow::BaseOsUpdate => "BaseOS",
             QuickRow::SelfTest => "Self-Test",
             QuickRow::BugReport => "Bug Report",
+            QuickRow::Cheevos => "RetroAchievements",
         }
     }
 
@@ -256,6 +262,7 @@ impl QuickRow {
                 | QuickRow::WifiArt
                 | QuickRow::SelfTest
                 | QuickRow::BugReport
+                | QuickRow::Cheevos
         )
     }
 

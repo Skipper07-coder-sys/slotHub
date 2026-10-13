@@ -15,16 +15,18 @@ use slot_store::{
 use slot_ui::{
     board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
     draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
-    BtSetup, ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis,
-    Placed, Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal,
-    SetupKey, SetupOutcome, Shelf, SlotChrome, StatusBar, StatusIcon, TexId, Toast, WifiSetup,
-    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
-    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup, ClockPicker, Draw, FfState,
+    GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed, Polaroids, PowerChoice,
+    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
+    SlotChrome, StatusBar, StatusIcon, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H,
+    CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U,
+    SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::art::{art_jobs, ArtJobs};
 use crate::audio::Sfx;
 use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
+use crate::cheevos::{cheevos_client, Account, Notice};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
 use crate::diag::{diag_jobs, DiagJob, DiagJobs, DiagState, Radios};
 use crate::drive::{drive_jobs, library_marks, DriveJobs, DriveState};
@@ -282,6 +284,9 @@ pub enum Phase {
     BtSetup {
         setup: BtSetup,
     },
+    CheevosSetup {
+        setup: CheevosSetup,
+    },
 }
 
 pub struct App {
@@ -392,6 +397,10 @@ pub struct App {
     bt_setup_face: Option<TexId>,
     wifi: Box<dyn WifiJobs>,
     wifi_setup_face: Option<TexId>,
+    cheevos: Account,
+    cheevos_setup_face: Option<TexId>,
+    cheevo_popup: CheevoPopup,
+    cheevo_face: Option<(TexId, u32, u32)>,
     update: Box<dyn UpdateJobs>,
     update_confirm_at: Option<Millis>,
     installed: Installed,
@@ -454,6 +463,10 @@ impl App {
             bt_setup_face: None,
             wifi: wifi_jobs(),
             wifi_setup_face: None,
+            cheevos: Account::new(slot_cheevos::no_cheevos()),
+            cheevos_setup_face: None,
+            cheevo_popup: CheevoPopup::default(),
+            cheevo_face: None,
             update: update_jobs(),
             update_confirm_at: None,
             installed: Installed::default(),
@@ -591,6 +604,8 @@ impl App {
         }
         app.update_confirm_at = Some(app.now() + UPDATE_CONFIRM_MS);
         app.installed = Installed::read(root);
+        app.cheevos.set_api(cheevos_client(&app.installed.slot));
+        app.cheevos.boot(root);
         // The run before crashed: report.sh has saved a report for it. The
         // game it was playing stays on the shelf, so it cannot crash again
         // straight away.
@@ -799,7 +814,8 @@ impl App {
             | QuickRow::WifiDrive
             | QuickRow::WifiArt
             | QuickRow::SelfTest
-            | QuickRow::BugReport => None,
+            | QuickRow::BugReport
+            | QuickRow::Cheevos => None,
         }
     }
 
@@ -816,6 +832,7 @@ impl App {
             QuickRow::WifiArt => Some(self.art_text()),
             QuickRow::SelfTest => Some(self.diag.state().test_text()),
             QuickRow::BugReport => Some(self.diag.state().report_text()),
+            QuickRow::Cheevos => Some(self.cheevos.text()),
             _ => None,
         }
     }
@@ -1896,6 +1913,7 @@ impl App {
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::WifiSetup { .. } => self.wifi_setup_input(action),
             Phase::BtSetup { .. } => self.bt_setup_input(action),
+            Phase::CheevosSetup { .. } => self.cheevos_setup_input(action),
             _ => {}
         }
     }
@@ -1963,7 +1981,118 @@ impl App {
             QuickRow::WifiArt => self.fetch_art(),
             QuickRow::SelfTest => self.run_diag(DiagJob::SelfTest),
             QuickRow::BugReport => self.run_diag(DiagJob::BugReport),
+            QuickRow::Cheevos => self.press_cheevos(),
         }
+    }
+
+    // A on RetroAchievements: sign in when signed out, sign out when not.
+    fn press_cheevos(&mut self) {
+        if self.cheevos.has_account() {
+            self.cheevos.sign_out();
+            return;
+        }
+        self.phase = Phase::CheevosSetup {
+            setup: CheevosSetup::default(),
+        };
+    }
+
+    pub fn cheevos_setup(&self) -> Option<&CheevosSetup> {
+        match &self.phase {
+            Phase::CheevosSetup { setup } => Some(setup),
+            _ => None,
+        }
+    }
+
+    pub fn set_cheevos_setup_face(&mut self, face: TexId) {
+        self.cheevos_setup_face = Some(face);
+    }
+
+    /// The RetroAchievements client for a game about to start, when there
+    /// is an account: the game loads in rcheevos once its sign-in is done.
+    pub fn cheevos_for_game(&self) -> Option<Arc<dyn slot_cheevos::Cheevos>> {
+        self.cheevos.has_account().then(|| self.cheevos.api())
+    }
+
+    pub fn set_cheevos(&mut self, api: Arc<dyn slot_cheevos::Cheevos>) {
+        self.cheevos.set_api(api);
+    }
+
+    pub fn cheevos_text(&self) -> String {
+        self.cheevos.text()
+    }
+
+    /// The unlock popup on screen now, for the frontend to draw its face.
+    pub fn cheevo_shown(&self) -> Option<&Cheevo> {
+        self.cheevo_popup.current()
+    }
+
+    pub fn set_cheevo_face(&mut self, face: Option<(TexId, u32, u32)>) {
+        self.cheevo_face = face;
+    }
+
+    fn cheevos_setup_input(&mut self, action: Action) {
+        let key = match action {
+            Action::GbaDown(Btn::Up) => SetupKey::Up,
+            Action::GbaDown(Btn::Down) => SetupKey::Down,
+            Action::GbaDown(Btn::Left) => SetupKey::Left,
+            Action::GbaDown(Btn::Right) => SetupKey::Right,
+            Action::GbaDown(Btn::A) => SetupKey::A,
+            Action::GbaDown(Btn::B) => SetupKey::B,
+            Action::GbaDown(Btn::X) => SetupKey::X,
+            Action::GbaDown(Btn::Y) => SetupKey::Y,
+            Action::GbaDown(Btn::Start) => SetupKey::Start,
+            Action::QuickMenu => SetupKey::B,
+            _ => return,
+        };
+        let Phase::CheevosSetup { setup } = &mut self.phase else {
+            return;
+        };
+        let leaving = action == Action::QuickMenu;
+        match setup.press(key) {
+            CheevosOutcome::Stay if !leaving => {}
+            CheevosOutcome::Stay | CheevosOutcome::Back => {
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::Cheevos,
+                }
+            }
+            CheevosOutcome::SignIn { username, password } => {
+                self.cheevos.sign_in(&username, password);
+            }
+        }
+    }
+
+    fn cheevos_timers(&mut self) {
+        let online = self.state.wifi && self.wifi.state() == WifiState::Online;
+        self.cheevos.timers(online, self.now());
+        for notice in self.cheevos.poll(self.now()) {
+            match notice {
+                Notice::Popup(cheevo) => self.cheevo_popup.push(cheevo),
+                Notice::SignedIn(username) => {
+                    if let Phase::CheevosSetup { setup } = &mut self.phase {
+                        *setup = CheevosSetup::SignedIn { username };
+                    }
+                }
+                Notice::SignInFailed { rejected } => {
+                    if let Phase::CheevosSetup {
+                        setup: CheevosSetup::SigningIn { username },
+                    } = &mut self.phase
+                    {
+                        let message = match rejected {
+                            true => "Wrong name or password",
+                            false if !online => "Wi-Fi is not connected",
+                            false => "Could not reach RetroAchievements",
+                        };
+                        self.phase = Phase::CheevosSetup {
+                            setup: CheevosSetup::Failed {
+                                username: std::mem::take(username),
+                                message: message.into(),
+                            },
+                        };
+                    }
+                }
+            }
+        }
+        self.cheevo_popup.tick(self.now());
     }
 
     fn open_wifi_setup(&mut self) {
@@ -2219,7 +2348,8 @@ impl App {
             | QuickRow::BaseOsUpdate
             | QuickRow::WifiArt
             | QuickRow::SelfTest
-            | QuickRow::BugReport => return,
+            | QuickRow::BugReport
+            | QuickRow::Cheevos => return,
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
             QuickRow::WifiDrive => return self.toggle_drive(),
         }
@@ -2580,6 +2710,7 @@ impl App {
         self.net_timers();
         self.drive_timers();
         self.art_timers();
+        self.cheevos_timers();
         let offer = self.undo_label();
         if let Some(p) = &mut self.polaroids {
             p.set_undo(offer);
@@ -2894,6 +3025,10 @@ impl App {
                 BtSetup::draw(self.bt_setup_face, out);
                 return;
             }
+            Phase::CheevosSetup { .. } => {
+                CheevosSetup::draw(self.cheevos_setup_face, out);
+                return;
+            }
             Phase::Inserting { cart, resumed, .. } => {
                 if !resumed {
                     draw_backdrop(self.wallpaper, out);
@@ -2939,6 +3074,7 @@ impl App {
         if let Some(menu) = self.game_menu {
             self.draw_game_menu(menu, out);
         }
+        self.cheevo_popup.draw(self.cheevo_face, self.now(), out);
         self.hud.draw(self.now(), out);
     }
 

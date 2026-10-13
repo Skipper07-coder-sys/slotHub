@@ -6,11 +6,14 @@ mod battery;
 mod board;
 mod bt_setup;
 mod cart;
+mod cheevo_popup;
+mod cheevos_setup;
 mod clock;
 mod draw;
 mod footer;
 mod hud;
 mod icon;
+mod keyboard;
 mod link_art;
 mod plate;
 mod polaroids;
@@ -45,6 +48,8 @@ pub use cart::{
     CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W, GB_LABEL_H, GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y,
     LABEL_H, LABEL_W, LABEL_X, LABEL_Y,
 };
+pub use cheevo_popup::{cheevo_face, Cheevo, CheevoPopup, CHEEVO_H, CHEEVO_SHOW_MS, CHEEVO_W};
+pub use cheevos_setup::{CheevosOutcome, CheevosSetup};
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
 pub use footer::{draw_footer, draw_footer_radios, Printed};
@@ -53,6 +58,7 @@ pub use hud::{
     HUD_INK, HUD_MS, LINK_HOST_INK, LINK_JOIN_INK, PLATE_H,
 };
 pub use icon::{badge_face, icon_box, icon_face, warm_fonts, Badge, Icon};
+pub use keyboard::{KeyPress, Keyboard};
 pub use link_art::{
     link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
     ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, PLUG_H,

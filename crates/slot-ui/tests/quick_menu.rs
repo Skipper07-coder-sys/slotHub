@@ -130,7 +130,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::BaseOsUpdate,
             QuickRow::WifiArt,
             QuickRow::SelfTest,
-            QuickRow::BugReport
+            QuickRow::BugReport,
+            QuickRow::Cheevos
         ]
     );
     assert_eq!(
@@ -140,7 +141,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Network",
             "Choose Network",
             "Wi-Fi Drive",
-            "Game Artwork"
+            "Game Artwork",
+            "RetroAchievements"
         ]
     );
     assert_eq!(
