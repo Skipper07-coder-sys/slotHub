@@ -11,6 +11,7 @@ mod cheevo_popup;
 mod cheevos_setup;
 mod clock;
 mod draw;
+mod favorite;
 mod footer;
 mod hud;
 mod icon;
@@ -59,6 +60,7 @@ pub use cheevo_popup::{cheevo_face, Cheevo, CheevoPopup, CHEEVO_H, CHEEVO_SHOW_M
 pub use cheevos_setup::{CheevosOutcome, CheevosSetup};
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
+pub use favorite::{favorite_face, favorite_heart_face, FAVORITE_D, FAVORITE_FILE, FAVORITE_PX};
 pub use footer::{draw_footer, draw_footer_radios, Printed};
 pub use hud::{
     badge_at, ff_badge, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H, HUD_ICON_PX,

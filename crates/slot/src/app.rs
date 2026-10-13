@@ -8,9 +8,9 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, CpuMode, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette,
-    Platform, Shader, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX,
-    FF_SPEEDS, RING_MAX, RUN_AHEAD_MAX, VOLUME_MAX,
+    format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Collections, Core,
+    GbPalette, Platform, Shader, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX,
+    BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX, RUN_AHEAD_MAX, VOLUME_MAX,
 };
 use slot_ui::{
     board_from, board_zoom, cheat_pages, draw_backdrop, draw_cheat_sheet, draw_empty_slot,
@@ -298,7 +298,9 @@ pub enum Phase {
 
 pub struct App {
     phase: Phase,
-    shelves: Vec<(Platform, Shelf)>,
+    shelves: Vec<(ShelfKind, Shelf)>,
+    collections: Collections,
+    collections_writable: bool,
     shelf_at: usize,
     play_held: Option<Millis>,
     refusal: Option<Refusal>,
@@ -441,6 +443,30 @@ pub struct App {
     state_writer: crate::state_writer::StateWriter,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShelfKind {
+    Platform(Platform),
+    Favorites,
+    Recents,
+}
+
+impl ShelfKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            ShelfKind::Platform(p) => p.name(),
+            ShelfKind::Favorites => "Favorites",
+            ShelfKind::Recents => "Recents",
+        }
+    }
+
+    fn platform(self) -> Option<Platform> {
+        match self {
+            ShelfKind::Platform(p) => Some(p),
+            _ => None,
+        }
+    }
+}
+
 const FACE_AHEAD: i32 = 8;
 const FACE_KEEP: i32 = 12;
 
@@ -451,7 +477,7 @@ pub struct FaceWant {
     pub on_screen: bool,
 }
 
-fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
+fn shelves_of(carts: Vec<Cart>) -> Vec<(ShelfKind, Shelf)> {
     let mut rows: Vec<(Platform, Vec<Cart>)> =
         Platform::ALL.iter().map(|p| (*p, Vec::new())).collect();
     for cart in carts {
@@ -460,7 +486,8 @@ fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
         }
     }
     rows.into_iter()
-        .map(|(platform, carts)| (platform, Shelf::new(carts)))
+        .map(|(platform, carts)| (ShelfKind::Platform(platform), Shelf::new(carts)))
+        .chain([ShelfKind::Favorites, ShelfKind::Recents].map(|k| (k, Shelf::new(Vec::new()))))
         .collect()
 }
 
@@ -500,6 +527,8 @@ impl App {
             state_writer,
             phase: Phase::Shelf,
             shelves,
+            collections: Collections::default(),
+            collections_writable: true,
             shelf_at,
             play_held: None,
             refusal: None,
@@ -641,6 +670,14 @@ impl App {
             app.state.cart = None;
             app.state.cart_platform = None;
         }
+        match Collections::read(root) {
+            Ok(collections) => app.collections = collections,
+            Err(e) => {
+                eprintln!("slot: favorites and recents: {e}, not saving them this session");
+                app.collections_writable = false;
+            }
+        }
+        app.refresh_collections();
         if app.state.clock_set {
             app.start();
         } else {
@@ -688,6 +725,103 @@ impl App {
         }
     }
 
+    fn shelf_of(&self, kind: ShelfKind) -> usize {
+        self.shelves
+            .iter()
+            .position(|(k, _)| *k == kind)
+            .unwrap_or(0)
+    }
+
+    pub fn shelf_kind(&self) -> ShelfKind {
+        self.shelves[self.shelf_at].0
+    }
+
+    pub fn selected_cart(&self) -> Option<&Cart> {
+        self.shelf().carts.get(self.shelf().index)
+    }
+
+    pub fn is_favorite(&self, cart: &Cart) -> bool {
+        self.collections.is_favorite(cart)
+    }
+
+    fn refresh_collections(&mut self) {
+        let favorites = self.collections.favorite_carts(self.carts());
+        let recents = self.collections.recent_carts(self.carts());
+        for (kind, carts) in [
+            (ShelfKind::Favorites, favorites),
+            (ShelfKind::Recents, recents),
+        ] {
+            let at = self.shelf_of(kind);
+            let freed = self.shelves[at].1.replace_carts(carts);
+            self.dropped_faces.extend(freed);
+        }
+        let favorites: std::collections::HashSet<(Platform, String)> = self
+            .collections
+            .favorites
+            .iter()
+            .map(|k| (k.platform, k.stem.clone()))
+            .collect();
+        for (_, shelf) in &mut self.shelves {
+            shelf.set_favorites(favorites.clone());
+        }
+        if self.shelf().carts.is_empty() {
+            if let Some(to) = self.next_shelf(1) {
+                self.shelf_at = to;
+                self.shelf_platform = slot_ui::Printed::default();
+                self.shelf_named = None;
+                self.name_pending = true;
+            }
+        }
+    }
+
+    fn toggle_favorite(&mut self) {
+        let Some(cart) = self.selected_cart().cloned() else {
+            return;
+        };
+        let mut next = self.collections.clone();
+        let added = next.toggle_favorite(&cart);
+        let saved = self.collections_writable
+            && self.root.as_ref().is_none_or(|root| {
+                next.write_favorites(root)
+                    .inspect_err(|e| eprintln!("slot: favorites: {e}"))
+                    .is_ok()
+            });
+        if !saved {
+            return self.refuse();
+        }
+        self.collections = next;
+        self.play_held = None;
+        self.refresh_collections();
+        let toast = match added {
+            true => Toast::FavoriteAdded,
+            false => Toast::FavoriteRemoved,
+        };
+        self.hud.toast(toast, self.now());
+    }
+
+    fn record_recent(&mut self) {
+        let Some(cart) = self.seated_cart().cloned() else {
+            return;
+        };
+        let mut next = self.collections.clone();
+        next.played(&cart);
+        if next != self.collections {
+            if !self.collections_writable {
+                return;
+            }
+            if let Some(root) = &self.root {
+                if let Err(e) = next.write_recents(root) {
+                    eprintln!("slot: recents: {e}");
+                    return;
+                }
+            }
+            self.collections = next;
+            self.refresh_collections();
+        }
+        let at = self.shelf_of(ShelfKind::Recents);
+        self.shelves[at].1.select(0);
+    }
+
     fn shelf(&self) -> &Shelf {
         &self.shelves[self.shelf_at].1
     }
@@ -709,6 +843,9 @@ impl App {
     }
 
     fn jump_letter(&mut self, dir: i32) {
+        if self.shelf_kind() == ShelfKind::Recents {
+            return;
+        }
         match dir > 0 {
             true => self.shelf_mut().jump_next_letter(),
             false => self.shelf_mut().jump_prev_letter(),
@@ -782,10 +919,12 @@ impl App {
             self.shelf_seen = seen;
         }
         let mut letters = std::mem::take(&mut self.letters);
-        slot_ui::shelf_letters(
-            self.shelf().carts.iter().map(|c| c.stem.as_str()),
-            &mut letters,
-        );
+        // Recents is in play order, not A to Z, so it has no letter rail.
+        let stems = match self.shelf_kind() {
+            ShelfKind::Recents => [].iter(),
+            _ => self.shelf().carts.iter(),
+        };
+        slot_ui::shelf_letters(stems.map(|c| c.stem.as_str()), &mut letters);
         let current = self.selected_stem().map(slot_store::initial);
         self.rail.update(&letters, current, dt);
         self.letters = letters;
@@ -831,7 +970,10 @@ impl App {
         self.shelves
             .iter()
             .enumerate()
-            .filter(|(_, (p, _))| platform.is_none_or(|want| *p == want))
+            .filter(|(_, (kind, _))| {
+                kind.platform()
+                    .is_some_and(|p| platform.is_none_or(|want| p == want))
+            })
             .find_map(|(at, (_, shelf))| {
                 shelf
                     .carts
@@ -1171,11 +1313,24 @@ impl App {
         let platform = self.shelves[self.shelf_at].0;
         let fresh = shelves_of(scan(&root).unwrap_or_default());
         let mut dropped = Vec::new();
-        for ((_, shelf), (_, new)) in self.shelves.iter_mut().zip(fresh) {
-            dropped.extend(shelf.restock(new.carts));
+        for ((kind, shelf), (_, new)) in self.shelves.iter_mut().zip(fresh) {
+            if kind.platform().is_some() {
+                dropped.extend(shelf.restock(new.carts));
+            }
+        }
+        // Favorites and Recents follow the fresh scan, with fresh faces too:
+        // a rescan after a label fetch has new labels to show.
+        let favorites = self.collections.favorite_carts(self.carts());
+        let recents = self.collections.recent_carts(self.carts());
+        for (kind, carts) in [
+            (ShelfKind::Favorites, favorites),
+            (ShelfKind::Recents, recents),
+        ] {
+            let at = self.shelf_of(kind);
+            dropped.extend(self.shelves[at].1.restock(carts));
         }
         self.dropped_faces.extend(dropped);
-        let total: usize = self.shelves.iter().map(|(_, s)| s.carts.len()).sum();
+        let total = self.carts().count();
         eprintln!("slot: rescan: {total} carts");
         let here = self.shelves.iter().position(|(p, _)| *p == platform);
         self.shelf_at = here
@@ -1390,6 +1545,12 @@ impl App {
         self.wallpaper = Some(face);
     }
 
+    pub fn set_favorite_face(&mut self, face: TexId) {
+        for (_, shelf) in &mut self.shelves {
+            shelf.set_favorite_face(face);
+        }
+    }
+
     pub fn set_bolt_face(&mut self, bolt: TexId) {
         self.bolt = Some(bolt);
     }
@@ -1423,9 +1584,10 @@ impl App {
         &self.phase
     }
 
-    pub fn carts(&self) -> impl Iterator<Item = &Cart> {
+    pub fn carts(&self) -> impl Iterator<Item = &Cart> + Clone {
         self.shelves
             .iter()
+            .filter(|(kind, _)| kind.platform().is_some())
             .flat_map(|(_, shelf)| shelf.carts.iter())
     }
 
@@ -1438,7 +1600,14 @@ impl App {
             Phase::Doze { cart: Some(cart) } => cart,
             _ => return None,
         };
-        self.shelf().carts.iter().find(|c| c.stem == *stem)
+        self.shelf_cart(stem)
+    }
+
+    fn shelf_cart(&self, stem: &str) -> Option<&Cart> {
+        match self.selected_cart() {
+            Some(c) if c.stem == stem => Some(c),
+            _ => self.shelf().carts.iter().find(|c| c.stem == stem),
+        }
     }
 
     pub fn single_cart(&self) -> bool {
@@ -1959,6 +2128,7 @@ impl App {
                     self.open_core_picker()
                 }
                 _ if self.core_picker.is_some() => self.core_picker_input(action),
+                Action::GbaDown(Btn::Y) => self.toggle_favorite(),
                 Action::GbaDown(Btn::Up) => self.jump_letter(-1),
                 Action::GbaDown(Btn::Down) => self.jump_letter(1),
                 Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.shelf_mut().hold_left(now),
@@ -2811,7 +2981,11 @@ impl App {
                 self.link_loaded = None;
             }
             self.resume_unspent = seated.is_some();
+            let started = seated.is_some();
             self.record_cart(seated);
+            if started {
+                self.record_recent();
+            }
         }
         self.step_screen(dt);
     }
@@ -3630,7 +3804,7 @@ impl App {
     }
 
     fn auto_link(&self, stem: &str) -> Option<(&Cart, LinkKind)> {
-        let cart = self.shelf().carts.iter().find(|c| c.stem == stem)?;
+        let cart = self.shelf_cart(stem)?;
         let auto = link_kind(&cart.code, &cart.title, slot_store::header_clean(&cart.rom));
         Some((cart, auto))
     }
@@ -3652,12 +3826,14 @@ impl App {
             return;
         }
         let at = self.shelf().index;
-        let Some(cart) = self.shelf_mut().carts.get_mut(at).map(|c| {
+        let Some(read) = self.shelf_mut().carts.get_mut(at).map(|c| {
             c.read_header();
-            c.stem.clone()
+            c.clone()
         }) else {
             return;
         };
+        self.share_header(&read);
+        let cart = read.stem;
         eprintln!(
             "slot: launch: insert {cart} at {:.1} ms",
             crate::boot_time::ms()
@@ -3672,6 +3848,17 @@ impl App {
             resumed: false,
             clean,
         };
+    }
+
+    fn share_header(&mut self, read: &Cart) {
+        for (_, shelf) in &mut self.shelves {
+            for c in &mut shelf.carts {
+                if c.platform == read.platform && c.stem == read.stem {
+                    c.title.clone_from(&read.title);
+                    c.code.clone_from(&read.code);
+                }
+            }
+        }
     }
 
     pub fn starting_clean(&self) -> bool {

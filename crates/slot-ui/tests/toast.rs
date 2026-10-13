@@ -52,6 +52,8 @@ fn the_banner_says_what_happened_and_never_what_is_on_screen() {
             Toast::CrashCaught,
             Toast::BatteryLow15,
             Toast::BatteryLow10,
+            Toast::FavoriteAdded,
+            Toast::FavoriteRemoved,
         ],
         "a banner was added or dropped: every face is uploaded by its place in this list"
     );
