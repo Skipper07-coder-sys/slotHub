@@ -740,25 +740,6 @@ fn the_grid_keeps_game_boy_rows_even_when_stretched_on_a_4_by_3_panel() {
 }
 
 #[test]
-fn simpletex_shows_a_grey_paper_as_grey() {
-    let Some((_g, _s, mut c)) = compositor() else {
-        return;
-    };
-    c.set_paper(4, &[0x60; 16]);
-    c.fit((OUT_W, OUT_H));
-    c.set_screen_effect(ScreenEffect::Simpletex);
-    c.set_screen_power(1.0);
-    c.begin_frame();
-    c.upload_game(&flat_shot([0xff, 0xff, 0xff]));
-    c.draw_game();
-    let got = px(&c.read_frame(), OUT_W as usize / 2, OUT_H as usize / 2);
-    assert!(
-        got.iter().all(|ch| ch.abs_diff(0x60) <= 2),
-        "white through a 0x60 paper came out {got:?}"
-    );
-}
-
-#[test]
 fn the_dot_shader_keeps_a_white_screen_a_little_over_half_lit() {
     let Some((_g, _s, mut c)) = compositor() else {
         return;

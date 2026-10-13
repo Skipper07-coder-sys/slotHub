@@ -52,43 +52,20 @@ precision highp float;
 precision mediump float;
 #endif
 uniform sampler2D u_game;
-uniform sampler2D u_paper;
 uniform vec2 u_src;
 uniform vec4 u_uv;
 uniform float u_bright;
 uniform float u_mode;
-uniform float u_paper_size;
 uniform vec4 u_rect;
 uniform vec2 u_fbo;
 uniform vec4 u_pic;
 varying vec2 v_uv;
 const vec3 offsets = vec3(3.141592654) * vec3(1.0 / 2.0, 1.0 / 2.0 - 2.0 / 3.0, 1.0 / 2.0 - 4.0 / 3.0);
-const vec3 luma_coeff = vec3(0.2126, 0.7152, 0.0722);
 vec2 grid_band(vec2 x) {
     return floor(x) / 3.0 + min(fract(x), vec2(1.0 / 3.0));
 }
 float dot_weight(vec2 f, vec2 o, float bloom) {
     return exp(-4.0 * length(f - (o + vec2(0.5))) * bloom);
-}
-// lcd-grid-v2: integrals of (1 - x^2 - x^4 + x^6)^2 and (1 - 2x^4 + x^6)^2.
-float smear_x(float z) {
-    float z2 = z * z;
-    return z * (1.0 + z2 * (-2.0 / 3.0 + z2 * (-1.0 / 5.0 + z2 * (4.0 / 7.0
-        + z2 * (-1.0 / 9.0 + z2 * (-2.0 / 11.0 + z2 * (1.0 / 13.0)))))));
-}
-float smear_y(float z) {
-    float z2 = z * z;
-    return z * (1.0 + z2 * (0.0 + z2 * (-4.0 / 5.0 + z2 * (2.0 / 7.0
-        + z2 * (4.0 / 9.0 + z2 * (-4.0 / 11.0 + z2 * (1.0 / 13.0)))))));
-}
-float smear(float x, float dx, float d, bool across) {
-    float lo = clamp((x - dx * 0.5) / d, -1.0, 1.0);
-    float hi = clamp((x + dx * 0.5) / d, -1.0, 1.0);
-    float area = across ? smear_x(hi) - smear_x(lo) : smear_y(hi) - smear_y(lo);
-    return d * area / dx;
-}
-vec3 lcd_texel(vec2 at) {
-    return pow(1.5 * texture2D(u_game, (at + 0.5) / u_src).rgb, vec3(2.2));
 }
 // zfast_crt_geo: NTSC-J (D93) to Rec709 D65, for colours squared on the way in.
 const mat3 P22D93 = mat3(
@@ -112,7 +89,11 @@ void main() {
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
-    } else if (u_mode > 9.5) {
+    } else if (u_mode > 8.5) {
+        // LCD3x 18/12: LCD3x with brighter scanlines (18) and LCD (12).
+        vec2 angle = f * 6.283185307;
+        c *= (18.0 + sin(angle.y)) / 19.0 * (12.0 + sin(angle.x + offsets)) / 13.0;
+    } else if (u_mode > 7.5) {
         vec2 span = u_pic.zw - u_pic.xy;
         vec2 q = (uv - u_pic.xy) / span;
         vec2 w = q * 2.0 - 1.0;
@@ -137,23 +118,7 @@ void main() {
         if (corner.y <= corner.x || corner.x < 0.0001) {
             c = vec3(0.0);
         }
-    } else if (u_mode > 8.5) {
-        vec2 tl = floor(uv * u_src - 0.4999);
-        float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;
-        float rx = ps.x * 3.0;
-        vec3 lcol = vec3(smear(sx + 1.0, rx, 1.5, true), smear(sx, rx, 1.5, true),
-                         smear(sx - 1.0, rx, 1.5, true));
-        vec3 rcol = vec3(smear(sx - 2.0, rx, 1.5, true), smear(sx - 3.0, rx, 1.5, true),
-                         smear(sx - 4.0, rx, 1.5, true));
-        float sy = uv.y * u_src.y - 0.4999 - tl.y;
-        float tcol = smear(sy, ps.y, 0.63, false);
-        float bcol = smear(sy - 1.0, ps.y, 0.63, false);
-        vec3 sum = lcd_texel(tl) * lcol * tcol
-                 + lcd_texel(tl + vec2(1.0, 0.0)) * rcol * tcol
-                 + lcd_texel(tl + vec2(0.0, 1.0)) * lcol * bcol
-                 + lcd_texel(tl + vec2(1.0, 1.0)) * rcol * bcol;
-        c = pow(sum * pow(0.75, 2.2), vec3(1.0 / 2.2));
-    } else if (u_mode > 7.5) {
+    } else if (u_mode > 6.5) {
         vec2 p = uv * u_src;
         vec2 i = floor(p) + 0.5;
         vec2 d = p - i;
@@ -166,31 +131,18 @@ void main() {
         float low = 1.25 - 5.0 * (y2 - 2.05 * y4);
         float high = 1.0 - 10.0 * (y4 - 2.8 * y4 * d.y);
         c *= mix(low * mask, high, dot(c, vec3(0.3333 * 0.8)));
-    } else if (u_mode > 6.5) {
+    } else if (u_mode > 5.5) {
         c = pow(c, vec3(2.4));
         vec3 lift = mix(vec3(0.2), vec3(0.8), c) * (1.0 - sqrt(f.x + f.y));
         c = pow(clamp(c + lift, 0.0, 1.0), vec3(1.0 / 2.2));
-    } else if (u_mode > 5.5) {
+    } else if (u_mode > 4.5) {
         c = pow(c, vec3(2.4));
         vec2 gap = clamp(clamp(f + 0.5 * ps, 0.0, 1.0) - 0.84, vec2(0.0), ps) / ps;
         c = mix(c * (1.04 + f.x * f.y), c * 0.36, max(gap.x, gap.y));
         c = clamp(pow(c, vec3(1.0 / 2.2)), 0.0, 1.0);
-    } else if (u_mode > 4.5) {
+    } else if (u_mode > 3.5) {
         vec2 angle = (f - 0.25) * 6.283185307;
         c *= (16.0 + sin(angle.y)) / 17.0 * (4.0 + sin(angle.x)) / 5.0;
-    } else if (u_mode > 3.5) {
-        c = pow(c, vec3(1.05));
-        vec2 d = abs(f - 0.5);
-        float x2 = max(d.x, d.y);
-        x2 = x2 * x2;
-        float x4 = x2 * x2;
-        float w = 48.0 * (x4 - (8.0 / 3.0) * x4 * x2);
-        w = w * (w + (1.0 - w) * 0.65) * 0.65;
-        float luma = dot(c, luma_coeff);
-        w = w * luma;
-        c = mix(c, vec3(1.0), w);
-        vec3 bg = vec3(texture2D(u_paper, (floor(gl_FragCoord.xy) + 0.5) / u_paper_size).r) * c;
-        c = mix(c, bg, dot(c, luma_coeff));
     } else if (u_mode > 2.5) {
         float bloom = mix(1.05, 0.95, dot(c, vec3(0.30, 0.59, 0.11)));
         float mid = dot_weight(f, vec2(0.0), bloom);

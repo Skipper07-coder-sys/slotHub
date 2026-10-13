@@ -2229,6 +2229,11 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderPrev,
+            Shader::Lcd3xBright,
+            slot_ui::Toast::ShaderLcd3xBright,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
             Shader::Lcd3x,
             slot_ui::Toast::ShaderLcd3x,
         ),
@@ -2239,8 +2244,8 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderPrev,
-            Shader::Simpletex,
-            slot_ui::Toast::ShaderSimpletex,
+            Shader::CurvedCrt,
+            slot_ui::Toast::ShaderCurvedCrt,
         ),
     ] {
         s.app_mut().apply(action);
@@ -2253,7 +2258,7 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
     }
     assert_eq!(
         slot_store::read_slot_state(d.path()).shader_gb,
-        Shader::Simpletex,
+        Shader::Grid,
         "a GBA cart moved the Game Boy shader"
     );
 }

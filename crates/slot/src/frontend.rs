@@ -2,7 +2,6 @@ use std::time::{Duration, Instant};
 
 use slot_gfx::{Compositor, Draw, ScreenEffect, TexId, OUT_H, OUT_W};
 
-const PAPER: &[u8] = include_bytes!("../assets/paper.png");
 use slot_input::{InputSource, Millis};
 use slot_power::{Platform, Power};
 use slot_store::format_stamp;
@@ -220,22 +219,6 @@ impl Frontend {
         }
     }
 
-    fn upload_paper(compositor: &mut Compositor) {
-        let mut dec = png::Decoder::new(std::io::Cursor::new(PAPER));
-        dec.set_transformations(png::Transformations::normalize_to_color8());
-        let Ok(mut reader) = dec.read_info() else {
-            return;
-        };
-        let mut buf = vec![0u8; reader.output_buffer_size()];
-        let Ok(info) = reader.next_frame(&mut buf) else {
-            return;
-        };
-        if info.color_type != png::ColorType::Grayscale || info.width != info.height {
-            return;
-        }
-        compositor.set_paper(info.width, &buf[..info.buffer_size()]);
-    }
-
     pub fn upload_faces(&mut self, compositor: &mut Compositor) {
         self.upload_boot_faces(compositor);
         if let Some(faces) = self.ui_faces.take().and_then(|rx| rx.recv().ok()) {
@@ -244,8 +227,6 @@ impl Frontend {
     }
 
     pub fn upload_boot_faces(&mut self, compositor: &mut Compositor) {
-        Self::upload_paper(compositor);
-        crate::boot_time::mark("paper");
         if self.rebuild.is_none() {
             // The first shelf shows every face at once.
             let wait = std::time::Duration::from_secs(5);
@@ -423,13 +404,12 @@ impl Frontend {
             slot_store::Shader::Lcd3x => ScreenEffect::Lcd3x,
             slot_store::Shader::Grid => ScreenEffect::Grid,
             slot_store::Shader::Dot => ScreenEffect::Dot,
-            slot_store::Shader::Simpletex => ScreenEffect::Simpletex,
             slot_store::Shader::Lcd1x => ScreenEffect::Lcd1x,
             slot_store::Shader::Retro => ScreenEffect::Retro,
             slot_store::Shader::Bevel => ScreenEffect::Bevel,
             slot_store::Shader::Crt => ScreenEffect::Crt,
-            slot_store::Shader::LcdGrid => ScreenEffect::LcdGrid,
             slot_store::Shader::CurvedCrt => ScreenEffect::CurvedCrt,
+            slot_store::Shader::Lcd3xBright => ScreenEffect::Lcd3xBright,
         });
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());

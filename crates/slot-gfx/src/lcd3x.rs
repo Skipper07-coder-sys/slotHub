@@ -15,13 +15,12 @@ pub enum ScreenEffect {
     Lcd3x,
     Grid,
     Dot,
-    Simpletex,
     Lcd1x,
     Retro,
     Bevel,
     Crt,
-    LcdGrid,
     CurvedCrt,
+    Lcd3xBright,
 }
 
 impl ScreenEffect {

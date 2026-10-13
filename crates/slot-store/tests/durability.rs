@@ -166,7 +166,7 @@ fn a_first_boot_rumbles_and_fast_forwards_silently_at_the_default() {
     assert!(!s.ff_sound, "boots with fast forward audible");
     assert!(!s.colour_correction, "boots with the picture tinted");
     assert_eq!(s.shader_gba, Shader::Grid);
-    assert_eq!(s.shader_gb, Shader::Simpletex);
+    assert_eq!(s.shader_gb, Shader::Grid);
 }
 
 #[test]
@@ -197,7 +197,7 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
             ff_sound: false,
             colour_correction: false,
             shader_gba: Shader::Grid,
-            shader_gb: Shader::Simpletex,
+            shader_gb: Shader::Grid,
             eject_save: true,
             turbo: true,
             rewind: true,
@@ -249,6 +249,18 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
     ] {
         assert!(text.lines().any(|l| l == line), "no {line} in {text:?}");
     }
+}
+
+#[test]
+fn a_card_saved_on_a_dropped_shader_falls_back_to_grid() {
+    let d = tmp_root();
+    std::fs::write(
+        d.path().join("Config/slot.state"),
+        "shader_gba=lcdgrid\nshader_gb=simpletex\n",
+    )
+    .unwrap();
+    let s = read_slot_state(d.path());
+    assert_eq!((s.shader_gba, s.shader_gb), (Shader::Grid, Shader::Grid));
 }
 
 #[test]

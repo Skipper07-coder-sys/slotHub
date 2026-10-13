@@ -2487,13 +2487,12 @@ impl App {
             Shader::Lcd3x => Toast::ShaderLcd3x,
             Shader::Grid => Toast::ShaderGrid,
             Shader::Dot => Toast::ShaderDot,
-            Shader::Simpletex => Toast::ShaderSimpletex,
             Shader::Lcd1x => Toast::ShaderLcd1x,
             Shader::Retro => Toast::ShaderRetro,
             Shader::Bevel => Toast::ShaderBevel,
             Shader::Crt => Toast::ShaderCrt,
-            Shader::LcdGrid => Toast::ShaderLcdGrid,
             Shader::CurvedCrt => Toast::ShaderCurvedCrt,
+            Shader::Lcd3xBright => Toast::ShaderLcd3xBright,
         };
         self.persist();
         self.hud.toast(said, self.now());
@@ -4616,13 +4615,12 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Lcd3x => QuickValue::Lcd3x,
         Shader::Grid => QuickValue::Grid,
         Shader::Dot => QuickValue::Dot,
-        Shader::Simpletex => QuickValue::Simpletex,
         Shader::Lcd1x => QuickValue::Lcd1x,
         Shader::Retro => QuickValue::Retro,
         Shader::Bevel => QuickValue::Bevel,
         Shader::Crt => QuickValue::Crt,
-        Shader::LcdGrid => QuickValue::LcdGrid,
         Shader::CurvedCrt => QuickValue::CurvedCrt,
+        Shader::Lcd3xBright => QuickValue::Lcd3xBright,
     }
 }
 
