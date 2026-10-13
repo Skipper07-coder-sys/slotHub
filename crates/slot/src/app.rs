@@ -18,9 +18,9 @@ use slot_ui::{
     BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup, ClockPicker, Draw, FfState,
     GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed, Polaroids, PowerChoice,
     QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
-    SlotChrome, StatusBar, StatusIcon, TexId, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W, CHIP_H,
-    CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U,
-    SOCKET_V, SOCKET_W, TURN_PAD,
+    SlotChrome, StatusBar, StatusIcon, TexId, Ticker, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W,
+    CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H,
+    SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::art::{art_jobs, ArtJobs};
@@ -397,6 +397,7 @@ pub struct App {
     bt_setup_face: Option<TexId>,
     wifi: Box<dyn WifiJobs>,
     wifi_setup_face: Option<TexId>,
+    ticker_face: Option<(TexId, u32, u32)>,
     cheevos: Account,
     cheevos_setup_face: Option<TexId>,
     cheevo_popup: CheevoPopup,
@@ -463,6 +464,7 @@ impl App {
             bt_setup_face: None,
             wifi: wifi_jobs(),
             wifi_setup_face: None,
+            ticker_face: None,
             cheevos: Account::new(slot_cheevos::no_cheevos()),
             cheevos_setup_face: None,
             cheevo_popup: CheevoPopup::default(),
@@ -814,7 +816,6 @@ impl App {
             | QuickRow::Game
             | QuickRow::Bluetooth
             | QuickRow::Wifi
-            | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
@@ -832,7 +833,7 @@ impl App {
             QuickRow::DateTime => Some(slot_ui::date_time_text(self.wall_secs())),
             QuickRow::SlotUpdate => Some(self.update_text(UpdateJob::Slot)),
             QuickRow::BaseOsUpdate => Some(self.update_text(UpdateJob::BaseOs)),
-            QuickRow::BtHeadphones => self.bt_device_name().map(|n| device_label(&n)),
+            QuickRow::BtHeadphones => self.bt_device_name(),
             QuickRow::Wifi | QuickRow::WifiNetwork => Some(self.wifi_row_text()),
             QuickRow::Bluetooth => Some(self.bt_row_text()),
             QuickRow::WifiDrive => Some(self.drive_text()),
@@ -847,11 +848,7 @@ impl App {
     /// What the Wi-Fi rows say: the network's name once joined.
     fn wifi_row_text(&self) -> String {
         match self.network_value() {
-            QuickValue::Online => self
-                .net
-                .ssid()
-                .map(device_label)
-                .unwrap_or("Connected".into()),
+            QuickValue::Online => self.net.ssid().unwrap_or("Connected").to_string(),
             v => v.text().to_string(),
         }
     }
@@ -862,7 +859,7 @@ impl App {
             return QuickValue::Off.text().into();
         }
         match self.bt_device_name() {
-            Some(name) => device_label(&name),
+            Some(name) => name,
             None => self.headphones_value().text().into(),
         }
     }
@@ -1957,7 +1954,7 @@ impl App {
             }
             QuickRow::About => self.phase = Phase::About,
             QuickRow::BtHeadphones => self.open_bt_setup(),
-            QuickRow::WifiChoose => self.open_wifi_setup(),
+            QuickRow::WifiNetwork => self.open_wifi_setup(),
             QuickRow::SlotUpdate => self.press_update(UpdateJob::Slot),
             QuickRow::BaseOsUpdate => self.press_update(UpdateJob::BaseOs),
             QuickRow::Update => {
@@ -1983,7 +1980,6 @@ impl App {
             | QuickRow::BtPower
             | QuickRow::WifiPower
             | QuickRow::Rumble => {}
-            QuickRow::WifiNetwork => self.rejoin_wifi(),
             QuickRow::WifiDrive => self.toggle_drive(),
             QuickRow::WifiArt => self.fetch_art(),
             QuickRow::SelfTest => self.run_diag(DiagJob::SelfTest),
@@ -2109,6 +2105,44 @@ impl App {
         };
     }
 
+    fn saved_networks(&self) -> Vec<String> {
+        self.root
+            .as_deref()
+            .map(|r| crate::wifi::saved(r).into_iter().map(|(n, _)| n).collect())
+            .unwrap_or_default()
+    }
+
+    /// The line on screen now that is too long for its room and scrolls.
+    pub fn ticker(&self) -> Option<Ticker> {
+        match &self.phase {
+            Phase::QuickMenu { row } if QuickRow::LIVE.contains(row) => {
+                slot_ui::quick_ticker(*row, self.pure, &self.quick_live_text(*row)?)
+            }
+            Phase::WifiSetup { setup } => setup.ticker(),
+            Phase::BtSetup { setup } => setup.ticker(),
+            _ => None,
+        }
+    }
+
+    pub fn set_ticker_face(&mut self, face: Option<(TexId, u32, u32)>) {
+        self.ticker_face = face;
+    }
+
+    // The ticker's face where its line goes on a list screen.
+    fn draw_ticker(&self, out: &mut Vec<Draw>) {
+        let (Some(t), Some((tex, w, h))) = (self.ticker(), self.ticker_face) else {
+            return;
+        };
+        out.push(Draw::Tex {
+            x: t.x.round(),
+            y: t.y.round(),
+            w: w as f32,
+            h: h as f32,
+            tex,
+            alpha: 1.0,
+        });
+    }
+
     pub fn wifi_setup(&self) -> Option<&WifiSetup> {
         match &self.phase {
             Phase::WifiSetup { setup } => Some(setup),
@@ -2133,7 +2167,7 @@ impl App {
             Action::GbaDown(Btn::Start) => SetupKey::Start,
             Action::QuickMenu => {
                 self.phase = Phase::QuickMenu {
-                    row: QuickRow::WifiChoose,
+                    row: QuickRow::WifiNetwork,
                 };
                 return;
             }
@@ -2147,10 +2181,19 @@ impl App {
             SetupOutcome::Rescan => self.open_wifi_setup(),
             SetupOutcome::Back => {
                 self.phase = Phase::QuickMenu {
-                    row: QuickRow::WifiChoose,
+                    row: QuickRow::WifiNetwork,
                 }
             }
             SetupOutcome::Join { ssid, psk } => self.join_picked(&ssid, &psk),
+            SetupOutcome::Rejoin { ssid } => {
+                let psk = self
+                    .root
+                    .as_deref()
+                    .and_then(|r| crate::wifi::saved(r).into_iter().find(|(n, _)| *n == ssid))
+                    .and_then(|(_, psk)| psk)
+                    .unwrap_or_default();
+                self.join_picked(&ssid, &psk);
+            }
         }
     }
 
@@ -2177,15 +2220,9 @@ impl App {
         {
             if let Some(found) = self.wifi.scanned() {
                 self.phase = Phase::WifiSetup {
-                    setup: WifiSetup::scanned(found),
+                    setup: WifiSetup::scanned_with(found, self.saved_networks()),
                 };
             }
-        }
-    }
-
-    fn rejoin_wifi(&mut self) {
-        if self.state.wifi && self.wifi.state() != WifiState::Connecting {
-            self.wifi.ask(WifiJob::On);
         }
     }
 
@@ -2349,15 +2386,14 @@ impl App {
             | QuickRow::Bluetooth
             | QuickRow::BtHeadphones
             | QuickRow::Wifi
-            | QuickRow::WifiChoose
             | QuickRow::Update
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
             | QuickRow::WifiArt
             | QuickRow::SelfTest
             | QuickRow::BugReport
-            | QuickRow::Cheevos => return,
-            QuickRow::WifiNetwork => return self.rejoin_wifi(),
+            | QuickRow::Cheevos
+            | QuickRow::WifiNetwork => return,
             QuickRow::WifiDrive => return self.toggle_drive(),
         }
         self.persist();
@@ -2994,6 +3030,7 @@ impl App {
                     values: QuickRow::ALL.map(|r| self.quick_value(r)),
                     live: &self.quick_live_faces,
                     faces: self.quick_menu_faces.as_ref(),
+                    ticker: self.ticker_face.filter(|_| self.ticker().is_some()),
                 }
                 .draw(out);
                 self.status_bar().draw(out);
@@ -3030,10 +3067,12 @@ impl App {
             }
             Phase::WifiSetup { .. } => {
                 WifiSetup::draw(self.wifi_setup_face, out);
+                self.draw_ticker(out);
                 return;
             }
             Phase::BtSetup { .. } => {
                 BtSetup::draw(self.bt_setup_face, out);
+                self.draw_ticker(out);
                 return;
             }
             Phase::CheevosSetup { .. } => {
@@ -4548,9 +4587,6 @@ fn free_stamp(ring: &StateRing, now: i64) -> String {
 }
 
 const VERSION_MAX: usize = 12;
-const DEVICE_NAME_MAX: usize = 18;
-
-// The headphones' name sits where a value would; long ones are cut.
 /// A release tag short enough to leave the row's label clear; a test build
 /// stamped with a branch name keeps its end, where the name differs.
 fn version_label(tag: &str) -> String {
@@ -4560,13 +4596,6 @@ fn version_label(tag: &str) -> String {
     }
     let tail: String = tag.chars().skip(n - (VERSION_MAX - 3)).collect();
     format!("...{tail}")
-}
-
-fn device_label(name: &str) -> String {
-    match name.char_indices().nth(DEVICE_NAME_MAX) {
-        Some((cut, _)) => format!("{}...", name[..cut].trim_end()),
-        None => name.to_string(),
-    }
 }
 
 fn centred_top(rows: usize) -> f32 {

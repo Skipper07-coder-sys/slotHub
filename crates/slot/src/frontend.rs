@@ -9,11 +9,11 @@ use slot_store::format_stamp;
 use slot_ui::{
     arrows_hint_face, badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face,
     gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face, quick_caret_face,
-    quick_label_face, quick_legend_faces, quick_value_face, rate_face, rate_text,
-    rebuild_count_face, rebuild_title_face, set_clock_hint_face, socket_face, status_icon_face,
-    sticker_face, title_face, toast_face, wallpaper_face, word_face, CartFace, GbShell, Icon,
-    LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StatusIcon,
-    StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
+    quick_label_face, quick_legend_faces, quick_value_face, quick_value_face_in, rate_face,
+    rate_text, rebuild_count_face, rebuild_title_face, set_clock_hint_face, socket_face,
+    status_icon_face, sticker_face, title_face, toast_face, wallpaper_face, word_face, CartFace,
+    GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen,
+    StatusIcon, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -55,6 +55,7 @@ pub struct Frontend {
     clocks: Clocks,
     about: AboutFace,
     quick_live: Vec<QuickLive>,
+    ticker: TickerFace,
     status_rate: StatusRate,
     wifi_setup: WifiSetupFace,
     bt_setup: BtSetupFace,
@@ -101,6 +102,28 @@ struct QuickLive {
     dim: Option<TexId>,
     lit: Option<TexId>,
     shown: String,
+}
+
+struct TickerFace {
+    tex: Option<TexId>,
+    shown: Option<slot_ui::Ticker>,
+    strip: slot_ui::UndoFace,
+    since: f64,
+}
+
+impl Default for TickerFace {
+    fn default() -> Self {
+        TickerFace {
+            tex: None,
+            shown: None,
+            strip: slot_ui::UndoFace {
+                rgba: Vec::new(),
+                w: 0,
+                h: 0,
+            },
+            since: 0.0,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -176,6 +199,7 @@ impl Frontend {
                 .iter()
                 .map(|_| QuickLive::default())
                 .collect(),
+            ticker: TickerFace::default(),
             status_rate: StatusRate::default(),
             wifi_setup: WifiSetupFace::default(),
             bt_setup: BtSetupFace::default(),
@@ -410,6 +434,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
+        sync_ticker(self.session.app_mut(), compositor, &mut self.ticker);
         sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
         sync_wifi_setup(self.session.app_mut(), compositor, &mut self.wifi_setup);
         sync_bt_setup(self.session.app_mut(), compositor, &mut self.bt_setup);
@@ -866,8 +891,8 @@ fn sync_quick_live(app: &mut App, compositor: &mut Compositor, states: &mut [Qui
             continue;
         }
         let (dim, lit) = (
-            quick_value_face(&text, false),
-            quick_value_face(&text, true),
+            quick_value_face_in(*row, &text, false),
+            quick_value_face_in(*row, &text, true),
         );
         let (dim_size, lit_size) = ((dim.w, dim.h), (lit.w, lit.h));
         let dim = upload(compositor, &mut state.dim, dim);
@@ -879,6 +904,26 @@ fn sync_quick_live(app: &mut App, compositor: &mut Compositor, states: &mut [Qui
         );
         state.shown = text;
     }
+}
+
+// A line too long for its room scrolls: its whole strip is drawn once, and
+// each frame shows the window of it that has moved into view.
+fn sync_ticker(app: &mut App, compositor: &mut Compositor, state: &mut TickerFace) {
+    let Some(ticker) = app.ticker() else {
+        state.shown = None;
+        app.set_ticker_face(None);
+        return;
+    };
+    let now = app.now() as f64;
+    if state.shown.as_ref() != Some(&ticker) {
+        state.strip = slot_ui::ticker_strip(&ticker);
+        state.since = now;
+        state.shown = Some(ticker.clone());
+    }
+    let frame = slot_ui::ticker_frame(&state.strip, ticker.room, now - state.since);
+    let (w, h) = (frame.w, frame.h);
+    let tex = upload(compositor, &mut state.tex, frame);
+    app.set_ticker_face(Some((tex, w, h)));
 }
 
 fn sync_status_rate(app: &mut App, compositor: &mut Compositor, state: &mut StatusRate) {

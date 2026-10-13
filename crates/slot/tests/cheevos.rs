@@ -97,7 +97,7 @@ fn press(a: &mut App, btn: Btn) {
 
 fn open_row(a: &mut App) {
     a.apply(Action::QuickMenu);
-    for _ in 0..QuickRow::Wifi.position() {
+    for _ in 0..QuickRow::Cheevos.parent().unwrap().position() {
         press(a, Btn::Down);
     }
     press(a, Btn::A);
@@ -121,11 +121,11 @@ fn tick(a: &mut App, at: u64) {
 }
 
 #[test]
-fn the_row_sits_last_on_the_wifi_page_and_says_off_when_signed_out() {
+fn the_row_sits_last_on_the_gameplay_page_and_says_off_when_signed_out() {
     let (_d, mut a, _fake) = booted(None);
     open_row(&mut a);
     assert_eq!(QuickRow::Cheevos.label(), "RetroAchievements");
-    assert_eq!(QuickRow::Cheevos.parent(), Some(QuickRow::Wifi));
+    assert_eq!(QuickRow::Cheevos.parent(), Some(QuickRow::Game));
     assert_eq!(a.quick_live_text(QuickRow::Cheevos).as_deref(), Some("Off"));
     assert!(a.cheevos_for_game().is_none());
 }

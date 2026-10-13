@@ -3,6 +3,7 @@ use crate::plate::{arrows_hint_face, centred_hints, hint_face, UndoFace, HINT_H,
 use crate::power_menu::{MENU_H, MENU_INK, MENU_PAD, MENU_PX};
 use crate::slot_chrome::{edge, opening};
 use crate::text;
+use crate::ticker::{ellipsize, overflows, Ticker};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum QuickRow {
@@ -26,7 +27,6 @@ pub enum QuickRow {
     Wifi,
     WifiPower,
     WifiNetwork,
-    WifiChoose,
     Update,
     SlotUpdate,
     BaseOsUpdate,
@@ -38,7 +38,7 @@ pub enum QuickRow {
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 29] = [
+    pub const ALL: [QuickRow; 28] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -59,7 +59,6 @@ impl QuickRow {
         QuickRow::Wifi,
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
-        QuickRow::WifiChoose,
         QuickRow::Update,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
@@ -87,21 +86,23 @@ impl QuickRow {
         QuickRow::GbPalettes,
     ];
 
-    pub const GAME: [QuickRow; 6] = [
+    pub const GAME: [QuickRow; 7] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Rewind,
         QuickRow::Turbo,
         QuickRow::Rumble,
         QuickRow::EjectSave,
+        QuickRow::Cheevos,
     ];
 
-    pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
+    pub const GAME_PURE: [QuickRow; 3] = [QuickRow::Rumble, QuickRow::EjectSave, QuickRow::Cheevos];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
-    pub const UPDATE: [QuickRow; 4] = [
+    pub const UPDATE: [QuickRow; 5] = [
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
+        QuickRow::WifiArt,
         QuickRow::SelfTest,
         QuickRow::BugReport,
     ];
@@ -122,13 +123,10 @@ impl QuickRow {
         QuickRow::Cheevos,
     ];
 
-    pub const WIFI: [QuickRow; 6] = [
+    pub const WIFI: [QuickRow; 3] = [
         QuickRow::WifiPower,
         QuickRow::WifiNetwork,
-        QuickRow::WifiChoose,
         QuickRow::WifiDrive,
-        QuickRow::WifiArt,
-        QuickRow::Cheevos,
     ];
 
     pub fn index(self) -> usize {
@@ -146,14 +144,10 @@ impl QuickRow {
             | QuickRow::ColourCorrection
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
-            QuickRow::WifiPower
-            | QuickRow::WifiNetwork
-            | QuickRow::WifiChoose
-            | QuickRow::WifiDrive
-            | QuickRow::WifiArt
-            | QuickRow::Cheevos => &QuickRow::WIFI,
+            QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiDrive => &QuickRow::WIFI,
             QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
+            | QuickRow::WifiArt
             | QuickRow::SelfTest
             | QuickRow::BugReport => &QuickRow::UPDATE,
             QuickRow::FastForward
@@ -161,7 +155,8 @@ impl QuickRow {
             | QuickRow::Rewind
             | QuickRow::Turbo
             | QuickRow::Rumble
-            | QuickRow::EjectSave => match pure {
+            | QuickRow::EjectSave
+            | QuickRow::Cheevos => match pure {
                 true => &QuickRow::GAME_PURE,
                 false => &QuickRow::GAME,
             },
@@ -233,7 +228,6 @@ impl QuickRow {
             QuickRow::BtHeadphones => "Headphones",
             QuickRow::Wifi | QuickRow::WifiPower => "Wi-Fi",
             QuickRow::WifiNetwork => "Network",
-            QuickRow::WifiChoose => "Choose Network",
             QuickRow::WifiDrive => "Wi-Fi Drive",
             QuickRow::WifiArt => "Game Artwork",
             QuickRow::Update => "Update",
@@ -255,7 +249,7 @@ impl QuickRow {
                 | QuickRow::Bluetooth
                 | QuickRow::BtHeadphones
                 | QuickRow::Wifi
-                | QuickRow::WifiChoose
+                | QuickRow::WifiNetwork
                 | QuickRow::Update
                 | QuickRow::SlotUpdate
                 | QuickRow::BaseOsUpdate
@@ -398,6 +392,55 @@ const LEGEND_Y: f32 = 427.0;
 pub const QUICK_SPLIT: f32 = LEGEND_Y - 2.0;
 pub(crate) const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
 
+const VALUE_GAP: f32 = 32.0;
+
+/// The value face of a live row, cut with an ellipsis where it would run into
+/// its label. The lit row scrolls its whole text instead (`quick_ticker`).
+pub fn quick_value_face_in(row: QuickRow, text: &str, lit: bool) -> UndoFace {
+    let (left, right) = value_span(row, lit);
+    let shown = ellipsize(&text.to_uppercase(), MENU_PX, menu_tracking(), right - left);
+    quick_value_face(&shown, lit)
+}
+
+/// The lit row's value when it is too long for its room, to scroll there.
+pub fn quick_ticker(row: QuickRow, pure: bool, text: &str) -> Option<Ticker> {
+    let (left, right) = value_span(row, true);
+    let upper = text.to_uppercase();
+    if !overflows(&upper, MENU_PX, menu_tracking(), right - left) {
+        return None;
+    }
+    Some(Ticker {
+        text: upper,
+        px: MENU_PX,
+        tracking: menu_tracking(),
+        ink: MENU_INK,
+        x: left,
+        y: row_top(row, pure) + TYPE_DROP,
+        room: (right - left).floor() as u32,
+        h: MENU_H,
+    })
+}
+
+fn menu_tracking() -> f32 {
+    text::tracking_for(MENU_PX)
+}
+
+// Where a row's value may run: from just past its label to the right edge,
+// less the carets on a lit row that left and right change.
+fn value_span(row: QuickRow, lit: bool) -> (f32, f32) {
+    let label = text::label_font()
+        .map(|f| text::line_width(f, &row.label().to_uppercase(), MENU_PX, menu_tracking()))
+        .unwrap_or(0.0);
+    let (left, right) = (QUICK_EDGE + label + VALUE_GAP, OUT_W as f32 - QUICK_EDGE);
+    if !lit || row.opens() {
+        return (left, right);
+    }
+    let caret = crate::icon::symbols_font()
+        .map(|f| f.metrics('\u{f0da}', CARET_PX).width as f32)
+        .unwrap_or(0.0);
+    (left + caret + CARET_GAP, right - caret - CARET_GAP)
+}
+
 pub fn quick_label_face(row: QuickRow) -> UndoFace {
     quick_text_face(row.label(), MENU_INK)
 }
@@ -486,6 +529,8 @@ pub struct QuickMenu<'a> {
     pub values: [Option<QuickValue>; QuickRow::ALL.len()],
     pub live: &'a LiveFaces,
     pub faces: Option<&'a QuickMenuFaces>,
+    /// The lit row's value scrolling, when it is too long to show whole.
+    pub ticker: Option<(TexId, u32, u32)>,
 }
 
 impl QuickMenu<'_> {
@@ -514,27 +559,33 @@ impl QuickMenu<'_> {
             if let Some(&(tex, w, h)) = faces.labels.get(row.index()) {
                 push(out, tex, QUICK_EDGE - pad, y, w, h);
             }
-            let value = match row {
-                row if QuickRow::LIVE.contains(&row) && self.live[row.index()].is_some() => {
-                    self.live[row.index()].map(|c| c[lit as usize])
+            let live = QuickRow::LIVE.contains(&row);
+            // The ticker's face has no padding around its type.
+            let (value, inset) = match row {
+                _ if lit && live && self.ticker.is_some() => (self.ticker, 0.0),
+                row if live && self.live[row.index()].is_some() => {
+                    (self.live[row.index()].map(|c| c[lit as usize]), pad)
                 }
-                _ => self.values[row.index()]
-                    .and_then(|v| faces.values.get(v.index()))
-                    .map(|v| v[lit as usize]),
+                _ => (
+                    self.values[row.index()]
+                        .and_then(|v| faces.values.get(v.index()))
+                        .map(|v| v[lit as usize]),
+                    pad,
+                ),
             };
             let Some((tex, w, h)) = value else {
                 continue;
             };
             if !lit || row.opens() {
-                push(out, tex, right + pad - w as f32, y, w, h);
+                push(out, tex, right + inset - w as f32, y, w, h);
                 continue;
             }
             let [(left_tex, lw, lh), (right_tex, rw, rh)] = faces.carets;
             let rx = right - rw as f32;
             push(out, right_tex, rx, y, rw, rh);
-            let vx = rx - CARET_GAP + pad - w as f32;
+            let vx = rx - CARET_GAP + inset - w as f32;
             push(out, tex, vx, y, w, h);
-            push(out, left_tex, vx + pad - CARET_GAP - lw as f32, y, lw, lh);
+            push(out, left_tex, vx + inset - CARET_GAP - lw as f32, y, lw, lh);
         }
         let [back, change, open, connect] = faces.legend;
         let other = match self.row {

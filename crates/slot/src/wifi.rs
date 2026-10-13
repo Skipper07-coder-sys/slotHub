@@ -137,11 +137,10 @@ pub fn parse_scan(text: &str) -> Vec<WifiNetwork> {
         .collect()
 }
 
-/// Puts a network at the top of wifi.conf, so it is the one tried first,
-/// replacing any older entry for the same name and keeping the rest.
-pub fn remember(root: &Path, ssid: &str, psk: &str) -> std::io::Result<()> {
-    let path = root.join(WIFI_CONF);
-    let old = std::fs::read_to_string(&path).unwrap_or_default();
+/// The networks wifi.conf has, first tried first, each with its password if
+/// it has one.
+pub fn saved(root: &Path) -> Vec<(String, Option<String>)> {
+    let old = std::fs::read_to_string(root.join(WIFI_CONF)).unwrap_or_default();
     let mut kept: Vec<(String, Option<String>)> = Vec::new();
     for line in old.lines().map(|l| l.trim_end_matches('\r')) {
         if let Some(name) = line.strip_prefix("ssid=") {
@@ -155,6 +154,14 @@ pub fn remember(root: &Path, ssid: &str, psk: &str) -> std::io::Result<()> {
             }
         }
     }
+    kept
+}
+
+/// Puts a network at the top of wifi.conf, so it is the one tried first,
+/// replacing any older entry for the same name and keeping the rest.
+pub fn remember(root: &Path, ssid: &str, psk: &str) -> std::io::Result<()> {
+    let path = root.join(WIFI_CONF);
+    let mut kept = saved(root);
     kept.retain(|(name, _)| name != ssid);
     let mut text = String::from("# Saved by slot. The first network listed is tried first.\n");
     let fresh = (ssid.to_string(), (!psk.is_empty()).then(|| psk.to_string()));
