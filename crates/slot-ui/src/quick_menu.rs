@@ -32,13 +32,11 @@ pub enum QuickRow {
     BaseOsUpdate,
     WifiDrive,
     WifiArt,
-    SelfTest,
-    BugReport,
     Cheevos,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 29] = [
+    pub const ALL: [QuickRow; 27] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -65,8 +63,6 @@ impl QuickRow {
         QuickRow::BaseOsUpdate,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
-        QuickRow::SelfTest,
-        QuickRow::BugReport,
         QuickRow::Cheevos,
     ];
 
@@ -99,15 +95,10 @@ impl QuickRow {
     pub const GAME_PURE: [QuickRow; 2] = [QuickRow::Rumble, QuickRow::EjectSave];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
-    pub const UPDATE: [QuickRow; 4] = [
-        QuickRow::SlotUpdate,
-        QuickRow::BaseOsUpdate,
-        QuickRow::SelfTest,
-        QuickRow::BugReport,
-    ];
+    pub const UPDATE: [QuickRow; 2] = [QuickRow::SlotUpdate, QuickRow::BaseOsUpdate];
 
     /// Rows whose value is text the app sets as it changes.
-    pub const LIVE: [QuickRow; 12] = [
+    pub const LIVE: [QuickRow; 10] = [
         QuickRow::DateTime,
         QuickRow::SlotUpdate,
         QuickRow::BaseOsUpdate,
@@ -117,8 +108,6 @@ impl QuickRow {
         QuickRow::WifiNetwork,
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
-        QuickRow::SelfTest,
-        QuickRow::BugReport,
         QuickRow::Cheevos,
     ];
 
@@ -152,10 +141,7 @@ impl QuickRow {
             | QuickRow::WifiDrive
             | QuickRow::WifiArt
             | QuickRow::Cheevos => &QuickRow::WIFI,
-            QuickRow::SlotUpdate
-            | QuickRow::BaseOsUpdate
-            | QuickRow::SelfTest
-            | QuickRow::BugReport => &QuickRow::UPDATE,
+            QuickRow::SlotUpdate | QuickRow::BaseOsUpdate => &QuickRow::UPDATE,
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
@@ -239,8 +225,6 @@ impl QuickRow {
             QuickRow::Update => "Update",
             QuickRow::SlotUpdate => "slot",
             QuickRow::BaseOsUpdate => "BaseOS",
-            QuickRow::SelfTest => "Self-Test",
-            QuickRow::BugReport => "Bug Report",
             QuickRow::Cheevos => "RetroAchievements",
         }
     }
@@ -260,8 +244,6 @@ impl QuickRow {
                 | QuickRow::SlotUpdate
                 | QuickRow::BaseOsUpdate
                 | QuickRow::WifiArt
-                | QuickRow::SelfTest
-                | QuickRow::BugReport
                 | QuickRow::Cheevos
         )
     }
@@ -297,6 +279,12 @@ pub enum QuickValue {
     Grid,
     Dot,
     Simpletex,
+    Lcd1x,
+    Retro,
+    Bevel,
+    Crt,
+    LcdGrid,
+    CurvedCrt,
     Connected,
     NotConnected,
     Starting,
@@ -312,7 +300,7 @@ pub enum QuickValue {
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 22] = [
+    pub const ALL: [QuickValue; 28] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -323,6 +311,12 @@ impl QuickValue {
         QuickValue::Grid,
         QuickValue::Dot,
         QuickValue::Simpletex,
+        QuickValue::Lcd1x,
+        QuickValue::Retro,
+        QuickValue::Bevel,
+        QuickValue::Crt,
+        QuickValue::LcdGrid,
+        QuickValue::CurvedCrt,
         QuickValue::Connected,
         QuickValue::NotConnected,
         QuickValue::Starting,
@@ -353,6 +347,12 @@ impl QuickValue {
             QuickValue::Grid => "Grid",
             QuickValue::Dot => "Dot",
             QuickValue::Simpletex => "Simpletex",
+            QuickValue::Lcd1x => "LCD1x",
+            QuickValue::Retro => "Retro",
+            QuickValue::Bevel => "Bevel",
+            QuickValue::Crt => "CRT",
+            QuickValue::LcdGrid => "LCD Grid",
+            QuickValue::CurvedCrt => "Curved CRT",
             QuickValue::Connected => "Connected",
             QuickValue::NotConnected => "Not Connected",
             QuickValue::Starting => "Starting...",

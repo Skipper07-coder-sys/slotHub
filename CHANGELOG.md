@@ -5,6 +5,8 @@
 Changes in this fork, on top of slot 1.6.0.
 
 - Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
+- Six more screen shaders: LCD1x, LCD Grid (lcd-grid-v2), Retro, Bevel, CRT and Curved CRT, ported from the libretro shader collection. Both the GBA and the GB / GBC shader settings now offer every shader.
+- The Self-Test and Bug Report rows are gone from the Update page. The self-test after an update still runs quietly and crash reports are still saved, for remote debugging.
 
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
 
