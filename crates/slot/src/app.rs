@@ -1674,7 +1674,8 @@ impl App {
     }
 
     pub fn restart(&mut self) {
-        self.settle_saves();
+        // A game still in the slot keeps its place, as a close would.
+        self.flush_resume();
         if let Some(power) = &mut self.power {
             power.restart();
         }
@@ -1785,7 +1786,7 @@ impl App {
     }
 
     pub fn poweroff(&mut self) {
-        self.settle_saves();
+        self.flush_resume();
         if let Some(power) = &mut self.power {
             power.poweroff();
         }

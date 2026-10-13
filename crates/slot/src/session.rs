@@ -105,6 +105,21 @@ impl Session {
         &mut self.app
     }
 
+    /// Saves the game's place and stops the core before the handheld goes
+    /// down: a restart with the emulator still running could hang the
+    /// kernel's shutdown, and a running core would lose its resume.
+    pub fn restart(&mut self) {
+        self.app.flush_resume();
+        self.emu = None;
+        self.app.restart();
+    }
+
+    pub fn poweroff(&mut self) {
+        self.app.flush_resume();
+        self.emu = None;
+        self.app.poweroff();
+    }
+
     pub fn emu(&self) -> Option<&EmuHandle> {
         self.emu.as_ref()
     }

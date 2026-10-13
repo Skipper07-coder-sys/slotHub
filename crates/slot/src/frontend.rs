@@ -590,11 +590,11 @@ impl Frontend {
     }
 
     pub fn restart(&mut self) {
-        self.session.app_mut().restart();
+        self.session.restart();
     }
 
     pub fn poweroff(&mut self) {
-        self.session.app_mut().poweroff();
+        self.session.poweroff();
     }
 }
 
