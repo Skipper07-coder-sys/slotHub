@@ -238,17 +238,22 @@ fn every_frame_of_a_present_gets_the_same_buttons_and_turbo_keeps_its_beat() {
             _ => None,
         })
         .collect();
+    // A present runs its frame alone while the buttons hold, and goes back
+    // for an undrawn frame first when they change (turbo flips them).
+    let presents: Vec<&[(bool, u16)]> = runs.split_inclusive(|r| r.0).collect();
     assert!(
-        runs.len() >= 24 && runs.len().is_multiple_of(2),
-        "{} frames over 12 presents at run-ahead 1, not 2 a present",
-        runs.len()
+        presents.len() >= 12,
+        "{} presents drew a frame over 12 presents at run-ahead 1",
+        presents.len()
     );
     let mut beat = Vec::new();
-    for frames in runs.chunks(2) {
-        assert_eq!(
-            frames.iter().map(|r| r.0).collect::<Vec<_>>(),
-            [false, true],
-            "a present drew a frame other than its last"
+    for frames in presents {
+        assert!(
+            matches!(
+                frames.iter().map(|r| r.0).collect::<Vec<_>>()[..],
+                [true] | [false, true]
+            ),
+            "a present ran other than its frame, or one undrawn frame and its frame: {frames:?}"
         );
         assert!(
             frames.iter().all(|r| r.1 == frames[0].1),
