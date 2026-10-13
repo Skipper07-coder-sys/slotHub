@@ -25,6 +25,7 @@ pub enum Toast {
     ShaderRetro,
     ShaderBevel,
     ShaderCrt,
+    ShaderLcdGrid,
     ShaderCurvedCrt,
     ShaderLcd3xBright,
     CardUnwritable,
@@ -39,7 +40,7 @@ pub enum Toast {
 }
 
 impl Toast {
-    const FIXED: [Toast; 27] = [
+    const FIXED: [Toast; 28] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -57,6 +58,7 @@ impl Toast {
         Toast::ShaderRetro,
         Toast::ShaderBevel,
         Toast::ShaderCrt,
+        Toast::ShaderLcdGrid,
         Toast::ShaderCurvedCrt,
         Toast::ShaderLcd3xBright,
         Toast::CardUnwritable,
@@ -113,6 +115,7 @@ impl Toast {
             Toast::ShaderRetro => "Shader: Retro",
             Toast::ShaderBevel => "Shader: Bevel",
             Toast::ShaderCrt => "Shader: CRT",
+            Toast::ShaderLcdGrid => "Shader: LCD Grid",
             Toast::ShaderCurvedCrt => "Shader: Curved CRT",
             Toast::ShaderLcd3xBright => "Shader: LCD3x 18/12",
             Toast::CardUnwritable => "Can't write to SD card",

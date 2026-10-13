@@ -425,6 +425,7 @@ impl Frontend {
             slot_store::Shader::Retro => ScreenEffect::Retro,
             slot_store::Shader::Bevel => ScreenEffect::Bevel,
             slot_store::Shader::Crt => ScreenEffect::Crt,
+            slot_store::Shader::LcdGrid => ScreenEffect::LcdGrid,
             slot_store::Shader::CurvedCrt => ScreenEffect::CurvedCrt,
             slot_store::Shader::Lcd3xBright => ScreenEffect::Lcd3xBright,
         });

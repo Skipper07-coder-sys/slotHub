@@ -67,6 +67,33 @@ vec2 grid_band(vec2 x) {
 float dot_weight(vec2 f, vec2 o, float bloom) {
     return exp(-4.0 * length(f - (o + vec2(0.5))) * bloom);
 }
+// lcd-grid-v2: integrals of (1 - x^2 - x^4 + x^6)^2 and (1 - 2x^4 + x^6)^2.
+vec3 smear_x(vec3 z) {
+    vec3 z2 = z * z;
+    return z * (1.0 + z2 * (-2.0 / 3.0 + z2 * (-1.0 / 5.0 + z2 * (4.0 / 7.0
+        + z2 * (-1.0 / 9.0 + z2 * (-2.0 / 11.0 + z2 * (1.0 / 13.0)))))));
+}
+vec2 smear_y(vec2 z) {
+    vec2 z2 = z * z;
+    return z * (1.0 + z2 * (0.0 + z2 * (-4.0 / 5.0 + z2 * (2.0 / 7.0
+        + z2 * (4.0 / 9.0 + z2 * (-4.0 / 11.0 + z2 * (1.0 / 13.0)))))));
+}
+vec3 smear_across(vec3 x, float dx) {
+    vec3 lo = clamp((x - dx * 0.5) / 1.5, -1.0, 1.0);
+    vec3 hi = clamp((x + dx * 0.5) / 1.5, -1.0, 1.0);
+    return 1.5 * (smear_x(hi) - smear_x(lo)) / dx;
+}
+vec2 smear_down(vec2 y, float dy) {
+    vec2 lo = clamp((y - dy * 0.5) / 0.63, -1.0, 1.0);
+    vec2 hi = clamp((y + dy * 0.5) / 0.63, -1.0, 1.0);
+    return 0.63 * (smear_y(hi) - smear_y(lo)) / dy;
+}
+// Gamma 2.0 rather than lcd-grid-v2's 2.2: squares and one square root instead of five pows,
+// which the H700 could not keep up with. The 1.18 gain keeps the old brightness.
+vec3 lcd_texel(vec2 at) {
+    vec3 t = texture2D(u_game, (at + 0.5) / u_src).rgb;
+    return t * t;
+}
 // zfast_crt_geo: NTSC-J (D93) to Rec709 D65, for colours squared on the way in.
 const mat3 P22D93 = mat3(
     1.00000, 0.00000, -0.06173,
@@ -89,11 +116,11 @@ void main() {
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
-    } else if (u_mode > 8.5) {
+    } else if (u_mode > 9.5) {
         // LCD3x 18/12: LCD3x with brighter scanlines (18) and LCD (12).
         vec2 angle = f * 6.283185307;
         c *= (18.0 + sin(angle.y)) / 19.0 * (12.0 + sin(angle.x + offsets)) / 13.0;
-    } else if (u_mode > 7.5) {
+    } else if (u_mode > 8.5) {
         vec2 span = u_pic.zw - u_pic.xy;
         vec2 q = (uv - u_pic.xy) / span;
         vec2 w = q * 2.0 - 1.0;
@@ -118,6 +145,21 @@ void main() {
         if (corner.y <= corner.x || corner.x < 0.0001) {
             c = vec3(0.0);
         }
+    } else if (u_mode > 7.5) {
+        vec2 tl = floor(uv * u_src - 0.4999);
+        float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;
+        float rx = ps.x * 3.0;
+        vec3 lcol = smear_across(vec3(sx + 1.0, sx, sx - 1.0), rx);
+        vec3 rcol = smear_across(vec3(sx - 2.0, sx - 3.0, sx - 4.0), rx);
+        float sy = uv.y * u_src.y - 0.4999 - tl.y;
+        vec2 tb = smear_down(vec2(sy, sy - 1.0), ps.y);
+        float tcol = tb.x;
+        float bcol = tb.y;
+        vec3 sum = lcd_texel(tl) * lcol * tcol
+                 + lcd_texel(tl + vec2(1.0, 0.0)) * rcol * tcol
+                 + lcd_texel(tl + vec2(0.0, 1.0)) * lcol * bcol
+                 + lcd_texel(tl + vec2(1.0, 1.0)) * rcol * bcol;
+        c = 1.18 * sqrt(sum);
     } else if (u_mode > 6.5) {
         vec2 p = uv * u_src;
         vec2 i = floor(p) + 0.5;
