@@ -182,6 +182,8 @@ fn a_card_from_before_the_settings_keeps_all_its_values() {
         SlotState {
             cart: Some("Emerald".into()),
             cart_platform: None,
+            last_cart: None,
+            last_cart_platform: None,
             brightness: 3,
             blue_light: 1,
             volume: 40,
@@ -407,4 +409,19 @@ fn a_missing_or_unknown_palette_falls_back_to_dmg_green() {
         assert!(!s.gb_palettes, "{bad:?} turned palettes on");
         assert_eq!(s.gb_palette, GbPalette::DEFAULT, "{bad:?}");
     }
+}
+
+#[test]
+fn the_last_cart_played_survives_a_write_and_read() {
+    let d = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(d.path().join("Config")).unwrap();
+    let s = SlotState {
+        cart: None,
+        last_cart: Some("Wario Land 4 (USA, Europe)".into()),
+        last_cart_platform: Some(Platform::Gba),
+        clock_set: true,
+        ..SlotState::default()
+    };
+    write_slot_state(d.path(), &s).unwrap();
+    assert_eq!(read_slot_state(d.path()), s);
 }

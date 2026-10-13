@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::cable::{self, Cable};
 use slot_cheevos::{Cheevos, Region};
 use slot_retro::{
-    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
+    ButtonMask, Link, LinkChannel, RaConsole, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
 };
 
 use crate::audio::Ring;
@@ -81,7 +81,7 @@ enum Cmd {
     EndLink,
     BeginCable(u8, Box<dyn LinkChannel>),
     SetOption(String, String),
-    Cheevos(Arc<dyn Cheevos>, Receiver<String>),
+    Cheevos(Arc<dyn Cheevos>, Receiver<String>, RaConsole),
 }
 
 /// How often to look again for the core's memory when it has not said yet.
@@ -93,6 +93,7 @@ const RA_MAP_EVERY: u32 = 60;
 /// which can be well into play when Wi-Fi comes up late.
 struct RaHook {
     api: Arc<dyn Cheevos>,
+    console: RaConsole,
     hash: Option<Receiver<String>>,
     md5: Option<String>,
     frames: u32,
@@ -106,7 +107,7 @@ impl RaHook {
         self.frames = self.frames.wrapping_add(1);
         if !self.mapped && self.frames % RA_MAP_EVERY == 1 {
             let regions: Vec<Region> = core
-                .ra_memory()
+                .ra_memory(self.console)
                 .into_iter()
                 .map(|r| Region {
                     start: r.ra_start,
@@ -319,9 +320,15 @@ impl EmuHandle {
     }
 
     /// Runs RetroAchievements alongside this game, loading it in rcheevos
-    /// once its hash arrives on `hash`.
-    pub fn attach_cheevos(&self, api: Arc<dyn Cheevos>, hash: Receiver<String>) {
-        request(&self.cmds, &self.shared, Cmd::Cheevos(api, hash));
+    /// once its hash arrives on `hash`, and reading its memory laid out as
+    /// rcheevos lays out `console`.
+    pub fn attach_cheevos(
+        &self,
+        api: Arc<dyn Cheevos>,
+        hash: Receiver<String>,
+        console: RaConsole,
+    ) {
+        request(&self.cmds, &self.shared, Cmd::Cheevos(api, hash, console));
     }
 
     pub fn set_option(&self, key: &str, value: &str) {
@@ -1043,12 +1050,13 @@ impl Worker {
             Cmd::SetOption(key, value) => {
                 core.set_option(&key, &value);
             }
-            Cmd::Cheevos(api, hash) => {
+            Cmd::Cheevos(api, hash, console) => {
                 if let Some(old) = ra.take() {
                     old.end();
                 }
                 *ra = Some(RaHook {
                     api,
+                    console,
                     hash: Some(hash),
                     md5: None,
                     frames: 0,

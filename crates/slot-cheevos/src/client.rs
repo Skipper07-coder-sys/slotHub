@@ -162,8 +162,10 @@ unsafe extern "C" fn event_handler(event: *const rc_client_event_t, _client: *mu
     match event.kind {
         RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED => {
             if let Some(a) = event.achievement.as_ref() {
+                let title = text(a.title);
+                eprintln!("slot: cheevos: {}", unlock_line(&title, a.points));
                 push(Event::Unlocked {
-                    title: text(a.title),
+                    title,
                     description: text(a.description),
                     points: a.points,
                 });
@@ -187,6 +189,11 @@ unsafe extern "C" fn event_handler(event: *const rc_client_event_t, _client: *mu
         RC_CLIENT_EVENT_RECONNECTED => eprintln!("slot: cheevos: waiting unlocks sent"),
         _ => {}
     }
+}
+
+/// The log line for an unlock, after "slot: cheevos: ".
+fn unlock_line(title: &str, points: u32) -> String {
+    format!("unlocked \"{title}\" ({points} pts)")
 }
 
 fn rejected(result: c_int) -> bool {
@@ -400,6 +407,14 @@ mod tests {
             );
         }
         assert_eq!(redact("Game 123 loaded"), "Game 123 loaded");
+    }
+
+    #[test]
+    fn an_unlock_is_logged_with_its_title_and_points() {
+        assert_eq!(
+            unlock_line("First Steps", 5),
+            "unlocked \"First Steps\" (5 pts)"
+        );
     }
 
     #[test]

@@ -387,3 +387,45 @@ fn a_resumed_cart_starts_seated() {
     let a = App::boot(d.path());
     assert_eq!(a.seat(), 1.0, "the resumed cart is still sliding in");
 }
+
+#[test]
+fn an_empty_slot_opens_the_shelf_on_the_game_played_last() {
+    let d = tmp_root_with_carts(&["Advance Wars", "Emerald", "Fire Emblem"]);
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            last_cart: Some("Fire Emblem".into()),
+            clock_set: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let mut a = App::boot(d.path());
+    assert!(matches!(a.phase(), Phase::Shelf));
+    assert_eq!(a.selected_stem(), Some("Fire Emblem"));
+    a.apply(Action::Insert);
+    let Phase::Inserting { cart, .. } = a.phase() else {
+        panic!("insert did nothing: {:?}", a.phase())
+    };
+    assert_eq!(cart, "Fire Emblem");
+}
+
+#[test]
+fn the_game_played_last_is_kept_after_it_is_ejected() {
+    let d = tmp_root_with_carts(&["Advance Wars", "Emerald"]);
+    let mut a = boot(d.path());
+    a.apply(Action::GbaDown(Btn::Right));
+    a.apply(Action::Insert);
+    a.on_core_ready();
+    for _ in 0..120 {
+        a.update(1.0 / 60.0);
+    }
+    a.apply(Action::Eject);
+    for _ in 0..120 {
+        a.update(1.0 / 60.0);
+    }
+    a.flush_state();
+    let s = read_slot_state(d.path());
+    assert_eq!(s.cart, None);
+    assert_eq!(s.last_cart, Some("Emerald".into()));
+}

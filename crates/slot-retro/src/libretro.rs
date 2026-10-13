@@ -10,7 +10,7 @@ use libloading::Library;
 use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
 use crate::ffi::*;
 use crate::link::Link;
-use crate::ra::{gba_regions, MapEntry, RaRegion};
+use crate::ra::{ra_regions, MapEntry, RaConsole, RaRegion};
 use crate::rumble::Rumble;
 
 const VIDEO_BYTES: usize = (GBA_W * GBA_H * 4) as usize;
@@ -721,9 +721,10 @@ impl RetroCore for LibretroCore {
         unsafe { halt_link() };
     }
 
-    fn ra_memory(&self) -> Vec<RaRegion> {
+    fn ra_memory(&self, console: RaConsole) -> Vec<RaRegion> {
         let area = |id| self.memory(id).map(|m| (m.as_ptr(), m.len()));
-        gba_regions(
+        ra_regions(
+            console,
             &self.host.maps,
             area(MEMORY_SYSTEM_RAM),
             area(MEMORY_SAVE_RAM),
@@ -1729,7 +1730,7 @@ mod tests {
             }
         };
         assert!(maps_ok && cheevos_ok);
-        let regions = gba_regions(&host.maps, None, None);
+        let regions = ra_regions(RaConsole::Gba, &host.maps, None, None);
         assert_eq!(
             regions,
             [RaRegion {

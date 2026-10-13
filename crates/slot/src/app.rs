@@ -650,6 +650,13 @@ impl App {
             None => {
                 self.state.cart = None;
                 self.state.cart_platform = None;
+                // The shelf opens on the game played last.
+                let last = self.state.last_cart.clone();
+                let platform = self.state.last_cart_platform;
+                if let Some((at, i)) = last.and_then(|stem| self.seat_of(&stem, platform)) {
+                    self.shelf_at = at;
+                    self.shelf_mut().select(i);
+                }
                 self.name_pending = true;
             }
         }
@@ -1674,8 +1681,7 @@ impl App {
     }
 
     pub fn restart(&mut self) {
-        // A game still in the slot keeps its place, as a close would.
-        self.flush_resume();
+        self.settle_saves();
         if let Some(power) = &mut self.power {
             power.restart();
         }
@@ -1786,7 +1792,7 @@ impl App {
     }
 
     pub fn poweroff(&mut self) {
-        self.flush_resume();
+        self.settle_saves();
         if let Some(power) = &mut self.power {
             power.poweroff();
         }
@@ -2825,6 +2831,10 @@ impl App {
         let platform = self.seated_cart().map(|c| c.platform);
         if self.state.cart == cart && self.state.cart_platform == platform {
             return;
+        }
+        if cart.is_some() {
+            self.state.last_cart = cart.clone();
+            self.state.last_cart_platform = platform;
         }
         self.state.cart = cart;
         self.state.cart_platform = platform;
@@ -4149,8 +4159,13 @@ impl App {
             state.as_deref(),
             sav.as_deref(),
         );
-        if let Err(e) = &written {
-            eprintln!("slot: flush: {e}");
+        match &written {
+            Ok(()) => eprintln!(
+                "slot: flush: resume {} bytes, save {} bytes",
+                state.as_ref().map_or(0, Vec::len),
+                sav.as_ref().map_or(0, Vec::len)
+            ),
+            Err(e) => eprintln!("slot: flush: {e}"),
         }
         self.card_failing.store(written.is_err(), Ordering::Relaxed);
         self.resume_unspent |= state.is_some();

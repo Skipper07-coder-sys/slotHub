@@ -482,12 +482,14 @@ impl Session {
         let sav = persist::read_sav(&self.root, platform, stem);
         launch("save read");
         let ring = self.sink.ring();
-        // Phase one of RetroAchievements: GBA games on mGBA, played alone.
-        let cheevos = match (platform, core, player) {
-            (Platform::Gba, slot_store::Core::Mgba, None) => self.app.cheevos_for_game(),
-            _ => None,
-        }
-        .map(|api| (api, hash_later(rom.clone())));
+        // RetroAchievements for GB, GBC and GBA on either core, played alone:
+        // link play runs one game on both ends.
+        let console = crate::cheevos::ra_console(platform);
+        let cheevos = player
+            .is_none()
+            .then(|| self.app.cheevos_for_game())
+            .flatten()
+            .map(|api| (api, hash_later(rom.clone(), console)));
         let emu = match player.filter(|_| platform == Platform::Gba) {
             Some(p) => EmuHandle::spawn_linked(opened.core, rom, ring, sav, resume, p),
             None => EmuHandle::spawn(opened.core, rom, ring, sav, resume),
@@ -495,7 +497,7 @@ impl Session {
         emu.set_volume(self.app.output_volume());
         emu.set_driven(self.driven);
         if let Some((api, hash)) = cheevos {
-            emu.attach_cheevos(api, hash);
+            emu.attach_cheevos(api, hash, console);
         }
         self.app.set_snapshot(Box::new(emu.snapshot()));
         self.emu = Some(emu);
@@ -535,11 +537,11 @@ impl Session {
 
 /// Hashes a ROM for RetroAchievements on a thread of its own, so the launch
 /// does not wait for it.
-fn hash_later(rom: PathBuf) -> std::sync::mpsc::Receiver<String> {
+fn hash_later(rom: PathBuf, console: slot_retro::RaConsole) -> std::sync::mpsc::Receiver<String> {
     let (tx, rx) = std::sync::mpsc::channel();
     let spawned = std::thread::Builder::new()
         .name("slot-cheevos-hash".into())
-        .spawn(move || match slot_cheevos::rom_md5(&rom) {
+        .spawn(move || match crate::cheevos::rom_hash(console, &rom) {
             Ok(md5) => {
                 let _ = tx.send(md5);
             }

@@ -263,3 +263,29 @@ fn unlocks_pop_up_one_after_another() {
     tick(&mut a, 1000 + 2 * CHEEVO_SHOW_MS);
     assert_eq!(a.cheevo_shown(), None);
 }
+
+#[test]
+fn every_platform_hashes_and_maps_as_its_own_rcheevos_console() {
+    use slot::cheevos::{ra_console, rom_hash};
+    use slot_retro::RaConsole;
+    use slot_store::Platform;
+    assert_eq!(ra_console(Platform::Gba), RaConsole::Gba);
+    assert_eq!(ra_console(Platform::Gb), RaConsole::Gb);
+    assert_eq!(ra_console(Platform::Gbc), RaConsole::Gbc);
+    let d = tempfile::tempdir().unwrap();
+    let rom = d.path().join("game.gb");
+    std::fs::write(&rom, b"abc").unwrap();
+    for platform in Platform::ALL {
+        let console = ra_console(platform);
+        assert_eq!(
+            slot_cheevos::hash_method(console.rc_id()),
+            Some(slot_cheevos::HashMethod::WholeFile),
+            "{platform:?}"
+        );
+        // rc_hash for these is the MD5 of the whole file.
+        assert_eq!(
+            rom_hash(console, &rom).unwrap(),
+            "900150983cd24fb0d6963f7d28e17f72"
+        );
+    }
+}

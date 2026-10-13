@@ -7,7 +7,8 @@ use slot::audio::{AudioSink, StubSink};
 use slot::emu::{CoreState, EmuHandle, Speed, FAST_STEPS, FAST_STEPS_MAX};
 use slot::persist::Snapshot;
 use slot_retro::{
-    AvInfo, ButtonMask, CoreError, LinkChannel, MockCore, RetroCore, NETPACKET_RELIABLE,
+    AvInfo, ButtonMask, CoreError, LinkChannel, MockCore, RaConsole, RaRegion, RetroCore,
+    NETPACKET_RELIABLE,
 };
 
 fn spawn() -> EmuHandle {
@@ -1098,6 +1099,8 @@ struct CountingCheevos {
     resets: AtomicUsize,
     loaded: Mutex<Vec<String>>,
     unloads: AtomicUsize,
+    /// Each region set, as its start and length.
+    memory: Mutex<Vec<(u32, usize)>>,
 }
 
 impl slot_cheevos::Cheevos for CountingCheevos {
@@ -1113,7 +1116,10 @@ impl slot_cheevos::Cheevos for CountingCheevos {
     fn unload_game(&self) {
         self.unloads.fetch_add(1, Ordering::Relaxed);
     }
-    fn set_memory(&self, _regions: Vec<slot_cheevos::Region>) {}
+    fn set_memory(&self, regions: Vec<slot_cheevos::Region>) {
+        let mut memory = self.memory.lock().unwrap();
+        memory.extend(regions.iter().map(|r| (r.start, r.len)));
+    }
     fn do_frame(&self) {
         self.frames.fetch_add(1, Ordering::Relaxed);
     }
@@ -1133,7 +1139,7 @@ fn retroachievements_load_the_hashed_game_see_every_frame_and_unload_at_the_end(
     let emu = spawn();
     let cheevos = Arc::new(CountingCheevos::default());
     let (tx, rx) = mpsc::channel();
-    emu.attach_cheevos(cheevos.clone(), rx);
+    emu.attach_cheevos(cheevos.clone(), rx, RaConsole::Gba);
     assert!(wait_for(|| cheevos.frames.load(Ordering::Relaxed) > 3));
     assert!(cheevos.loaded.lock().unwrap().is_empty());
     tx.send("0123456789abcdef0123456789abcdef".to_string())
@@ -1171,4 +1177,68 @@ fn retroachievements_load_the_hashed_game_see_every_frame_and_unload_at_the_end(
 
     drop(emu);
     assert_eq!(cheevos.unloads.load(Ordering::Relaxed), 1);
+}
+
+/// A core that maps 0x100 bytes for whichever console it is asked about, at
+/// a start that says which.
+struct MappedCore {
+    inner: MockCore,
+    ram: Vec<u8>,
+    asked: Arc<Mutex<Vec<RaConsole>>>,
+}
+
+impl RetroCore for MappedCore {
+    fn load(&mut self, rom: &Path) -> Result<(), CoreError> {
+        self.inner.load(rom)
+    }
+    fn run_frame(&mut self, input: ButtonMask) {
+        self.inner.run_frame(input);
+    }
+    fn video_xrgb8888(&self) -> &[u8] {
+        self.inner.video_xrgb8888()
+    }
+    fn take_audio(&mut self) -> Vec<i16> {
+        self.inner.take_audio()
+    }
+    fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
+        self.inner.serialize()
+    }
+    fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        self.inner.unserialize(data)
+    }
+    fn save_ram(&self) -> Option<Vec<u8>> {
+        self.inner.save_ram()
+    }
+    fn load_save_ram(&mut self, data: &[u8]) -> Result<(), CoreError> {
+        self.inner.load_save_ram(data)
+    }
+    fn av_info(&self) -> AvInfo {
+        self.inner.av_info()
+    }
+    fn ra_memory(&self, console: RaConsole) -> Vec<RaRegion> {
+        self.asked.lock().unwrap().push(console);
+        vec![RaRegion {
+            ra_start: console.rc_id(),
+            ptr: self.ram.as_ptr(),
+            len: self.ram.len(),
+        }]
+    }
+}
+
+#[test]
+fn retroachievements_read_memory_laid_out_for_the_games_console() {
+    for console in [RaConsole::Gb, RaConsole::Gbc, RaConsole::Gba] {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let emu = spawn_with_core(Box::new(MappedCore {
+            inner: MockCore::new(),
+            ram: vec![0; 0x100],
+            asked: asked.clone(),
+        }));
+        let cheevos = Arc::new(CountingCheevos::default());
+        let (_tx, rx) = mpsc::channel();
+        emu.attach_cheevos(cheevos.clone(), rx, console);
+        assert!(wait_for(|| !cheevos.memory.lock().unwrap().is_empty()));
+        assert_eq!(*cheevos.memory.lock().unwrap(), [(console.rc_id(), 0x100)]);
+        assert!(asked.lock().unwrap().iter().all(|c| *c == console));
+    }
 }
