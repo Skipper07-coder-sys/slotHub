@@ -1674,8 +1674,7 @@ impl App {
     }
 
     pub fn restart(&mut self) {
-        // A game still in the slot keeps its place, as a close would.
-        self.flush_resume();
+        self.settle_saves();
         if let Some(power) = &mut self.power {
             power.restart();
         }
@@ -1786,7 +1785,7 @@ impl App {
     }
 
     pub fn poweroff(&mut self) {
-        self.flush_resume();
+        self.settle_saves();
         if let Some(power) = &mut self.power {
             power.poweroff();
         }
@@ -4149,8 +4148,13 @@ impl App {
             state.as_deref(),
             sav.as_deref(),
         );
-        if let Err(e) = &written {
-            eprintln!("slot: flush: {e}");
+        match &written {
+            Ok(()) => eprintln!(
+                "slot: flush: resume {} bytes, save {} bytes",
+                state.as_ref().map_or(0, Vec::len),
+                sav.as_ref().map_or(0, Vec::len)
+            ),
+            Err(e) => eprintln!("slot: flush: {e}"),
         }
         self.card_failing.store(written.is_err(), Ordering::Relaxed);
         self.resume_unspent |= state.is_some();
