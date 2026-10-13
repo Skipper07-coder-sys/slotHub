@@ -54,6 +54,7 @@ pub struct Frontend {
     switcher: Switcher,
     clocks: Clocks,
     about: AboutFace,
+    cheat_sheet: CheatSheetFace,
     quick_live: Vec<QuickLive>,
     ticker: TickerFace,
     status_rate: StatusRate,
@@ -143,6 +144,12 @@ struct StatusRate {
 }
 
 #[derive(Default)]
+struct CheatSheetFace {
+    tex: Option<TexId>,
+    page: Option<usize>,
+}
+
+#[derive(Default)]
 struct AboutFace {
     tex: Option<TexId>,
     battery: Option<u8>,
@@ -206,6 +213,7 @@ impl Frontend {
             clocks: Clocks::default(),
             shelf_index: ShelfIndexFaces::default(),
             about: AboutFace::default(),
+            cheat_sheet: CheatSheetFace::default(),
             quick_live: QuickRow::LIVE
                 .iter()
                 .map(|_| QuickLive::default())
@@ -316,6 +324,10 @@ impl Frontend {
             let (tex, w, _) = up(f);
             (tex, w)
         });
+        let cheat_legend = faces.cheat_legend.map(|f| {
+            let (tex, w, _) = up(f);
+            (tex, w)
+        });
         let core_legend = faces
             .core_legend
             .into_iter()
@@ -349,6 +361,7 @@ impl Frontend {
         app.set_status_faces(status);
         app.set_core_part_faces(sockets, chips, blank, shadow);
         app.set_core_legend_faces(core_legend);
+        app.set_cheat_legend_faces(cheat_legend);
         app.set_link_menu_faces(roles);
         app.set_link_linked_face(linked);
         app.set_link_legend_faces(link_legend);
@@ -432,6 +445,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_shelf_index(self.session.app_mut(), compositor, &mut self.shelf_index);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
+        sync_cheat_sheet(self.session.app_mut(), compositor, &mut self.cheat_sheet);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
         sync_ticker(self.session.app_mut(), compositor, &mut self.ticker);
         sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
@@ -640,6 +654,7 @@ struct UiFaces {
     quick_values: Vec<[UndoFace; 2]>,
     quick_carets: [UndoFace; 2],
     quick_legend: [UndoFace; 4],
+    cheat_legend: [UndoFace; 3],
     status_icons: Vec<[UndoFace; 2]>,
     sockets: Vec<CartFace>,
     chips: Vec<CartFace>,
@@ -687,6 +702,7 @@ impl UiFaces {
                 .collect(),
             quick_carets: [false, true].map(quick_caret_face),
             quick_legend: quick_legend_faces(),
+            cheat_legend: slot_ui::cheat_legend_faces(),
             status_icons: StatusIcon::ALL
                 .iter()
                 .map(|i| [false, true].map(|lit| status_icon_face(*i, lit)))
@@ -976,6 +992,22 @@ fn sync_status_rate(app: &mut App, compositor: &mut Compositor, state: &mut Stat
     let tex = upload(compositor, &mut state.tex, face);
     app.set_status_rate_face(Some((tex, size.0, size.1)));
     state.shown = Some(text);
+}
+
+fn sync_cheat_sheet(app: &mut App, compositor: &mut Compositor, state: &mut CheatSheetFace) {
+    let Phase::CheatSheet { page } = *app.phase() else {
+        return;
+    };
+    if state.tex.is_some() && state.page == Some(page) {
+        return;
+    }
+    state.page = Some(page);
+    let id = upload(
+        compositor,
+        &mut state.tex,
+        slot_ui::cheat_sheet_face(page, app.pure()),
+    );
+    app.set_cheat_sheet_face(id);
 }
 
 fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace) {

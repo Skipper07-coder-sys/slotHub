@@ -13,14 +13,14 @@ use slot_store::{
     FF_SPEEDS, RING_MAX, VOLUME_MAX,
 };
 use slot_ui::{
-    board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
-    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
-    BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup, ClockPicker, Draw, FfState,
-    GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
-    SlotChrome, StatusBar, StatusIcon, TexId, Ticker, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W,
-    CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H,
-    SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    board_from, board_zoom, cheat_pages, draw_backdrop, draw_cheat_sheet, draw_empty_slot,
+    draw_footer, draw_legend, draw_slot_name, draw_sticker, ease, grown, lid_at, lid_from, lift_of,
+    on_board, shelf_cart_at, BtOutcome, BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup,
+    ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed,
+    Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey,
+    SetupOutcome, Shelf, SlotChrome, StatusBar, StatusIcon, TexId, Ticker, Toast, WifiSetup,
+    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
+    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::art::{art_jobs, ArtJobs};
@@ -279,6 +279,9 @@ pub enum Phase {
         cart: String,
     },
     About,
+    CheatSheet {
+        page: usize,
+    },
     Doze {
         cart: Option<String>,
     },
@@ -358,6 +361,8 @@ pub struct App {
     net: NetMeter,
     net_at: Millis,
     sticker_face: Option<TexId>,
+    cheat_sheet_face: Option<TexId>,
+    cheat_legend_faces: Option<[(TexId, u32); 3]>,
     wallpaper: Option<TexId>,
     battery_percent: slot_ui::Printed,
     bolt: Option<TexId>,
@@ -557,6 +562,8 @@ impl App {
             net: NetMeter::system(),
             net_at: 0,
             sticker_face: None,
+            cheat_sheet_face: None,
+            cheat_legend_faces: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
             bolt: None,
@@ -1352,6 +1359,14 @@ impl App {
         self.sticker_face = Some(face);
     }
 
+    pub fn set_cheat_sheet_face(&mut self, face: TexId) {
+        self.cheat_sheet_face = Some(face);
+    }
+
+    pub fn set_cheat_legend_faces(&mut self, faces: [(TexId, u32); 3]) {
+        self.cheat_legend_faces = Some(faces);
+    }
+
     pub fn set_clock_faces(&mut self, line: TexId, hint: TexId) {
         self.clock_faces = Some((line, hint));
     }
@@ -1985,6 +2000,22 @@ impl App {
                 self.phase = Phase::QuickMenu {
                     row: QuickRow::About,
                 }
+            }
+            Phase::About if action == Action::GbaDown(Btn::A) => {
+                self.phase = Phase::CheatSheet { page: 0 };
+            }
+            Phase::CheatSheet { page } => {
+                let pages = cheat_pages(self.pure).len();
+                self.phase = match action {
+                    Action::GbaDown(Btn::Left | Btn::L1) => Phase::CheatSheet {
+                        page: (page + pages - 1) % pages,
+                    },
+                    Action::GbaDown(Btn::Right | Btn::R1) => Phase::CheatSheet {
+                        page: (page + 1) % pages,
+                    },
+                    Action::GbaDown(Btn::B) | Action::QuickMenu => Phase::About,
+                    _ => return,
+                };
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::WifiSetup { .. } => self.wifi_setup_input(action),
@@ -3145,6 +3176,17 @@ impl App {
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);
                 draw_sticker(self.sticker_face, out);
+                if let Some([back, _, help]) = self.cheat_legend_faces {
+                    draw_legend(&[back, help], out);
+                }
+                return;
+            }
+            Phase::CheatSheet { .. } => {
+                let legend = self
+                    .cheat_legend_faces
+                    .map(|[back, page, _]| vec![back, page])
+                    .unwrap_or_default();
+                draw_cheat_sheet(self.cheat_sheet_face, &legend, out);
                 return;
             }
             Phase::WifiSetup { .. } => {

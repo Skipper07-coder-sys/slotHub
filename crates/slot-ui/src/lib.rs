@@ -6,6 +6,7 @@ mod battery;
 mod board;
 mod bt_setup;
 mod cart;
+mod cheat_sheet;
 mod cheevo_popup;
 mod cheevos_setup;
 mod clock;
@@ -49,6 +50,10 @@ pub use cart::{
     gb_shell_of, label_colour, label_panel, label_size, label_tags, label_text, seated_box,
     CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W, GB_LABEL_H, GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y,
     LABEL_H, LABEL_W, LABEL_X, LABEL_Y,
+};
+pub use cheat_sheet::{
+    cheat_last_row_mid, cheat_legend_faces, cheat_pages, cheat_sheet_face, cheat_width,
+    draw_cheat_sheet, draw_legend, CheatPage, CHEAT_DESC_X, CHEAT_TEXT_PX,
 };
 pub use cheevo_popup::{cheevo_face, Cheevo, CheevoPopup, CHEEVO_H, CHEEVO_SHOW_MS, CHEEVO_W};
 pub use cheevos_setup::{CheevosOutcome, CheevosSetup};
