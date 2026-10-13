@@ -19,6 +19,7 @@ pub enum ScreenEffect {
     Retro,
     Bevel,
     Crt,
+    LcdGrid,
     CurvedCrt,
     Lcd3xBright,
 }

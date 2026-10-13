@@ -1364,12 +1364,15 @@ impl App {
         }
     }
 
-    /// The CPU runs only as hard as needed: clocks follow the load, except in
-    /// fast-forward and link play, which hold the top clock, and with the lid
-    /// shut, which holds the lowest.
+    /// The CPU runs only as hard as needed: clocks follow the load in the
+    /// menus, a running game holds the top clock, and a shut lid holds the
+    /// lowest. A game can't follow the load: its thread sleeps until the next
+    /// frame, so schedutil reads it as idle and drops to 480 MHz, and then
+    /// frames come late (slowdown, lag, audio underruns).
     pub fn cpu_mode(&self) -> CpuMode {
         match self.phase {
             Phase::Doze { .. } => CpuMode::Rest,
+            Phase::Inserting { .. } | Phase::Playing { .. } => CpuMode::Full,
             _ if self.ff_on || self.link_active() => CpuMode::Full,
             _ => CpuMode::Balanced,
         }
@@ -2726,6 +2729,7 @@ impl App {
             Shader::Retro => Toast::ShaderRetro,
             Shader::Bevel => Toast::ShaderBevel,
             Shader::Crt => Toast::ShaderCrt,
+            Shader::LcdGrid => Toast::ShaderLcdGrid,
             Shader::CurvedCrt => Toast::ShaderCurvedCrt,
             Shader::Lcd3xBright => Toast::ShaderLcd3xBright,
         };
@@ -4960,14 +4964,17 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Retro => QuickValue::Retro,
         Shader::Bevel => QuickValue::Bevel,
         Shader::Crt => QuickValue::Crt,
+        Shader::LcdGrid => QuickValue::LcdGrid,
         Shader::CurvedCrt => QuickValue::CurvedCrt,
         Shader::Lcd3xBright => QuickValue::Lcd3xBright,
     }
 }
 
+/// Run-ahead in play: GBA games on either core. gpSP saves and loads in
+/// under a millisecond on the H700, so its run-ahead costs ~3 ms a frame.
 pub fn runahead_for(core: Core, platform: Platform, frames: u8) -> u8 {
     match (core, platform) {
-        (Core::Mgba, Platform::Gba) => frames,
+        (Core::Mgba | Core::Gpsp, Platform::Gba) => frames,
         _ => 0,
     }
 }

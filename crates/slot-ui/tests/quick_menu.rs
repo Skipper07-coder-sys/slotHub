@@ -190,6 +190,7 @@ fn the_values_read_as_the_menu_prints_them() {
             "Retro",
             "Bevel",
             "CRT",
+            "LCD Grid",
             "Curved CRT",
             "LCD3x 18/12",
             "Connected",

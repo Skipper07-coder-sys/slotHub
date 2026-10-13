@@ -663,8 +663,13 @@ impl Worker {
         let mut ff = (0u32, 0u32, Duration::ZERO, Instant::now());
         let mut ra: Option<RaHook> = None;
         let mut runahead = RunAhead::default();
+        let mut pace = Pace::default();
         while !self.shared.stop.load(Ordering::Relaxed) {
-            for cmd in self.cmds.try_iter() {
+            let pending: Vec<Cmd> = self.cmds.try_iter().collect();
+            if !pending.is_empty() {
+                runahead.settle(core.as_mut());
+            }
+            for cmd in pending {
                 self.apply(
                     cmd,
                     core.as_mut(),
@@ -743,6 +748,9 @@ impl Worker {
                 } else {
                     0
                 };
+            if ahead == 0 {
+                runahead.settle(core.as_mut());
+            }
             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
             crate::latency::emu_frame(input.0);
             let mut span = 1u32;
@@ -850,6 +858,7 @@ impl Worker {
                     }
                 }
                 let core_time = began.elapsed();
+                pace.core(core_time, ran);
                 if ahead == 0 {
                     cost.measured(skipped, drawn);
                 }
@@ -910,7 +919,7 @@ impl Worker {
                 if since_snapshot >= SNAPSHOT_EVERY {
                     since_snapshot = 0;
                     let state = match shown {
-                        true => Ok(std::mem::take(&mut runahead.state)),
+                        true => Ok(runahead.state.clone()),
                         false => core.serialize(),
                     };
                     if let Ok(state) = state {
@@ -949,6 +958,7 @@ impl Worker {
                         eprintln!(
                             "slot: audio: {queued}/{target} queued, {dropped} dropped, {starved} starved, locked {lock} at {scale:.5}"
                         );
+                        pace.report(ahead);
                     }
                 }
             }
@@ -969,6 +979,7 @@ impl Worker {
                 loop {
                     match self.next_tick(served, until) {
                         Wait::Tick(tick) => {
+                            pace.ticks(tick.saturating_sub(served));
                             served = tick;
                             stalled = false;
                             if let Some(measured) = rate.served(Instant::now(), tick) {
@@ -976,7 +987,11 @@ impl Worker {
                             }
                         }
                         Wait::Request => {
-                            for cmd in self.cmds.try_iter() {
+                            let pending: Vec<Cmd> = self.cmds.try_iter().collect();
+                            if !pending.is_empty() {
+                                runahead.settle(core.as_mut());
+                            }
+                            for cmd in pending {
                                 self.apply(
                                     cmd,
                                     core.as_mut(),
@@ -989,6 +1004,7 @@ impl Worker {
                             continue;
                         }
                         Wait::Late => {
+                            pace.late += 1;
                             rate.stalled();
                             stalled = true;
                         }
@@ -1006,6 +1022,7 @@ impl Worker {
                 None => deadline = now,
             }
         }
+        runahead.settle(core.as_mut());
         for cmd in self.cmds.try_iter() {
             self.apply(
                 cmd,
@@ -1257,21 +1274,99 @@ impl FrameCost {
     }
 }
 
+/// Frame pacing over a trace window, for `SLOT_TRACE`.
+struct Pace {
+    began: Instant,
+    presents: u32,
+    frames: u32,
+    core: Duration,
+    worst: Duration,
+    over: u32,
+    skipped: u64,
+    late: u32,
+}
+
+impl Default for Pace {
+    fn default() -> Self {
+        Pace {
+            began: Instant::now(),
+            presents: 0,
+            frames: 0,
+            core: Duration::ZERO,
+            worst: Duration::ZERO,
+            over: 0,
+            skipped: 0,
+            late: 0,
+        }
+    }
+}
+
+impl Pace {
+    fn core(&mut self, took: Duration, ran: u32) {
+        self.presents += 1;
+        self.frames += ran;
+        self.core += took;
+        self.worst = self.worst.max(took);
+        self.over += u32::from(took > Duration::from_millis(12));
+    }
+
+    /// A display tick that moved on by more than one skipped a present.
+    fn ticks(&mut self, by: u64) {
+        self.skipped += by.saturating_sub(1);
+    }
+
+    fn report(&mut self, ahead: u32) {
+        let secs = self.began.elapsed().as_secs_f64();
+        let n = self.presents.max(1);
+        eprintln!(
+            "slot: pace: {:.1} presents/s, {:.1} frames/s, core {:.1} ms avg {:.1} max, {} over 12 ms, {} ticks skipped, {} late, run-ahead {ahead}",
+            f64::from(self.presents) / secs,
+            f64::from(self.frames) / secs,
+            self.core.as_secs_f64() * 1e3 / f64::from(n),
+            self.worst.as_secs_f64() * 1e3,
+            self.over,
+            self.skipped,
+            self.late,
+        );
+        *self = Pace::default();
+    }
+}
+
 #[derive(Default)]
 struct RunAhead {
     state: Vec<u8>,
     video: Vec<u8>,
     audio: Vec<i16>,
     refused: bool,
+    /// The buttons the frame on screen was run with, while the core is left
+    /// one frame ahead of `state` (one frame of run-ahead only).
+    guess: Option<ButtonMask>,
 }
 
 impl RunAhead {
+    /// Shows the game `frames` ahead of where it really is. With one frame,
+    /// the core stays on the frame it showed: while the buttons don't change
+    /// that frame was the real next one, so a present costs one frame and a
+    /// save (~8 ms on the H700 with mGBA) instead of two frames, a save and a
+    /// load (~15 ms, which left too little of the 16.7 ms for the rest and
+    /// starved the sound). Only a change of buttons goes back and redoes it.
     fn run(
         &mut self,
         core: &mut dyn RetroCore,
         input: ButtonMask,
         frames: u32,
     ) -> Result<(), CoreError> {
+        match self.guess.take() {
+            Some(guess) if frames == 1 && guess == input => {
+                self.state = core.serialize()?;
+                let _ = core.take_audio();
+                core.set_frame_skip(false);
+                core.run_frame(input);
+                return self.keep(core, Some(input));
+            }
+            Some(_) => core.unserialize(&self.state)?,
+            None => {}
+        }
         core.set_frame_skip(true);
         core.run_frame(input);
         self.state = core.serialize()?;
@@ -1280,10 +1375,33 @@ impl RunAhead {
             core.set_frame_skip(left > 0);
             core.run_frame(input);
         }
+        if frames == 1 {
+            return self.keep(core, Some(input));
+        }
+        self.keep(core, None)?;
+        core.unserialize(&self.state)
+    }
+
+    fn keep(
+        &mut self,
+        core: &mut dyn RetroCore,
+        guess: Option<ButtonMask>,
+    ) -> Result<(), CoreError> {
         self.audio = core.take_audio();
         self.video.clear();
         self.video.extend_from_slice(core.video_xrgb8888());
-        core.unserialize(&self.state)
+        self.guess = guess;
+        Ok(())
+    }
+
+    /// Puts the core back on the real game before anything else reads,
+    /// saves or replaces it.
+    fn settle(&mut self, core: &mut dyn RetroCore) {
+        if self.guess.take().is_some() {
+            if let Err(e) = core.unserialize(&self.state) {
+                eprintln!("slot: run-ahead: could not go back to the real frame: {e}");
+            }
+        }
     }
 }
 
@@ -1385,9 +1503,9 @@ mod tests {
                     .expect("the reference refused its frame");
                 reference.run_frame(ButtonMask(0));
                 assert_eq!(
-                    core.serialize().expect("the mock always saves"),
+                    runahead.state,
                     real.to_le_bytes(),
-                    "at {frames} the game is not back on frame {real}"
+                    "at {frames} the real game kept is not frame {real}"
                 );
                 assert!(
                     runahead.video == reference.video_xrgb8888(),
@@ -1398,7 +1516,102 @@ mod tests {
                     "at {frames} the sound kept is not frame {shown}'s alone"
                 );
             }
+            runahead.settle(&mut core);
+            assert_eq!(
+                core.serialize().expect("the mock always saves"),
+                3u64.to_le_bytes(),
+                "at {frames} settle did not put the game back on frame 3"
+            );
         }
+    }
+
+    /// A core whose whole state is the buttons of every frame it ran.
+    #[derive(Default)]
+    struct Pressed {
+        frames: Vec<u16>,
+        video: Vec<u8>,
+        audio: Vec<i16>,
+        loads: u32,
+    }
+
+    impl RetroCore for Pressed {
+        fn load(&mut self, _rom: &std::path::Path) -> Result<(), CoreError> {
+            Ok(())
+        }
+        fn run_frame(&mut self, input: ButtonMask) {
+            self.frames.push(input.0);
+            self.video = self.frames.iter().flat_map(|f| f.to_le_bytes()).collect();
+            self.audio = vec![self.frames.len() as i16; 2];
+        }
+        fn video_xrgb8888(&self) -> &[u8] {
+            &self.video
+        }
+        fn take_audio(&mut self) -> Vec<i16> {
+            std::mem::take(&mut self.audio)
+        }
+        fn serialize(&mut self) -> Result<Vec<u8>, CoreError> {
+            Ok(self.frames.iter().flat_map(|f| f.to_le_bytes()).collect())
+        }
+        fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
+            self.loads += 1;
+            self.frames = data
+                .chunks(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            Ok(())
+        }
+        fn save_ram(&self) -> Option<Vec<u8>> {
+            None
+        }
+        fn load_save_ram(&mut self, _data: &[u8]) -> Result<(), CoreError> {
+            Ok(())
+        }
+        fn av_info(&self) -> slot_retro::AvInfo {
+            MockCore::new().av_info()
+        }
+    }
+
+    #[test]
+    fn one_frame_of_run_ahead_redoes_work_only_when_the_buttons_change() {
+        let presses = [0u16, 0, 0, 1, 1, 1, 0, 2, 2, 0, 0];
+        let mut core = Pressed::default();
+        let mut runahead = RunAhead::default();
+        let mut real: Vec<u16> = Vec::new();
+        let mut changes = 0;
+        for (i, &b) in presses.iter().enumerate() {
+            if i > 0 && presses[i - 1] != b {
+                changes += 1;
+            }
+            runahead
+                .run(&mut core, ButtonMask(b), 1)
+                .expect("the test core always saves and loads");
+            real.push(b);
+            let mut shown = real.clone();
+            shown.push(b);
+            let shown_bytes: Vec<u8> = shown.iter().flat_map(|f| f.to_le_bytes()).collect();
+            let real_bytes: Vec<u8> = real.iter().flat_map(|f| f.to_le_bytes()).collect();
+            assert_eq!(
+                runahead.video, shown_bytes,
+                "present {i} shows the wrong frame"
+            );
+            assert_eq!(
+                runahead.audio,
+                vec![shown.len() as i16; 2],
+                "present {i} plays the wrong sound"
+            );
+            assert_eq!(
+                runahead.state, real_bytes,
+                "present {i} keeps the wrong real game"
+            );
+        }
+        assert_eq!(
+            core.loads, changes,
+            "a load for anything but a change of buttons"
+        );
+        runahead.settle(&mut core);
+        assert_eq!(core.frames, real, "settle did not put the real game back");
+        runahead.settle(&mut core);
+        assert_eq!(core.loads, changes + 1, "a second settle loaded again");
     }
 
     fn ms(ms: f64) -> Duration {

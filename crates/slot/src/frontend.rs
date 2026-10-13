@@ -425,6 +425,7 @@ impl Frontend {
             slot_store::Shader::Retro => ScreenEffect::Retro,
             slot_store::Shader::Bevel => ScreenEffect::Bevel,
             slot_store::Shader::Crt => ScreenEffect::Crt,
+            slot_store::Shader::LcdGrid => ScreenEffect::LcdGrid,
             slot_store::Shader::CurvedCrt => ScreenEffect::CurvedCrt,
             slot_store::Shader::Lcd3xBright => ScreenEffect::Lcd3xBright,
         });
@@ -515,6 +516,13 @@ impl Frontend {
 
     pub fn drive_emulator(&mut self) {
         self.session.set_driven(true);
+    }
+
+    /// Game frames the emulator has published, and whether the game shows.
+    pub fn game_frames(&self) -> Option<u64> {
+        self.session
+            .game_visible()
+            .then(|| self.session.frames_published())
     }
 
     pub fn step_emulator(&self, present: Duration, timeout: Duration) -> bool {

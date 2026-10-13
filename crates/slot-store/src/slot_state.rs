@@ -62,30 +62,33 @@ pub enum Shader {
     Retro,
     Bevel,
     Crt,
+    LcdGrid,
     CurvedCrt,
     Lcd3xBright,
 }
 
 impl Shader {
-    pub const GBA: [Shader; 10] = [
+    pub const GBA: [Shader; 11] = [
         Shader::Off,
         Shader::Lcd3x,
         Shader::Lcd3xBright,
         Shader::Grid,
         Shader::Dot,
         Shader::Lcd1x,
+        Shader::LcdGrid,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
         Shader::CurvedCrt,
     ];
-    pub const GB: [Shader; 10] = [
+    pub const GB: [Shader; 11] = [
         Shader::Off,
         Shader::Grid,
         Shader::Lcd3x,
         Shader::Lcd3xBright,
         Shader::Dot,
         Shader::Lcd1x,
+        Shader::LcdGrid,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
@@ -102,6 +105,7 @@ impl Shader {
             Shader::Retro => "retro",
             Shader::Bevel => "bevel",
             Shader::Crt => "crt",
+            Shader::LcdGrid => "lcdgrid",
             Shader::CurvedCrt => "crtcurve",
             Shader::Lcd3xBright => "lcd3xbright",
         }
@@ -117,6 +121,7 @@ impl Shader {
             Shader::Retro,
             Shader::Bevel,
             Shader::Crt,
+            Shader::LcdGrid,
             Shader::CurvedCrt,
             Shader::Lcd3xBright,
         ]
