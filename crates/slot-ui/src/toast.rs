@@ -29,11 +29,13 @@ pub enum Toast {
     ShaderLcd3xBright,
     CardUnwritable,
     CrashCaught,
+    FavoriteAdded,
+    FavoriteRemoved,
     Palette(GbPalette),
 }
 
 impl Toast {
-    const FIXED: [Toast; 21] = [
+    const FIXED: [Toast; 23] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -55,6 +57,8 @@ impl Toast {
         Toast::ShaderLcd3xBright,
         Toast::CardUnwritable,
         Toast::CrashCaught,
+        Toast::FavoriteAdded,
+        Toast::FavoriteRemoved,
     ];
 
     pub fn all() -> Vec<Toast> {
@@ -105,6 +109,8 @@ impl Toast {
             Toast::ShaderLcd3xBright => "Shader: LCD3x 18/12",
             Toast::CardUnwritable => "Can't write to SD card",
             Toast::CrashCaught => "Crash report saved",
+            Toast::FavoriteAdded => "Favorite Added",
+            Toast::FavoriteRemoved => "Favorite Removed",
             Toast::Palette(p) => p.label(),
         }
     }
