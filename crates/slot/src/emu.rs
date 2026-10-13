@@ -146,7 +146,8 @@ impl RaHook {
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => self.hash = None,
             }
         }
-        if self.md5.is_some() && self.api.signed_in() {
+        // Loading checks the set's addresses, so the memory goes first.
+        if self.md5.is_some() && self.mapped && self.api.signed_in() {
             if let Some(md5) = self.md5.take() {
                 self.api.load_game(&md5);
             }

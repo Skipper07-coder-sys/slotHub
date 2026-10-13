@@ -105,8 +105,8 @@ pub trait Cheevos: Send + Sync {
     /// Starts identifying the game whose ROM has this MD5, as lowercase hex.
     fn load_game(&self, md5: &str);
     fn unload_game(&self);
-    /// The memory the achievements read, for the calling thread: call it on
-    /// the thread that calls `do_frame`.
+    /// The memory the achievements read. Set it before `load_game`: loading
+    /// checks every address, and achievements on one it can't read stay off.
     fn set_memory(&self, regions: Vec<Region>);
     fn do_frame(&self);
     fn idle(&self);
