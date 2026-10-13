@@ -1098,6 +1098,8 @@ struct CountingCheevos {
     idles: AtomicUsize,
     resets: AtomicUsize,
     loaded: Mutex<Vec<String>>,
+    /// Loads asked for before any memory was set.
+    loaded_blind: AtomicUsize,
     unloads: AtomicUsize,
     /// Each region set, as its start and length.
     memory: Mutex<Vec<(u32, usize)>>,
@@ -1111,6 +1113,9 @@ impl slot_cheevos::Cheevos for CountingCheevos {
         self.signed_in.load(Ordering::Relaxed)
     }
     fn load_game(&self, md5: &str) {
+        if self.memory.lock().unwrap().is_empty() {
+            self.loaded_blind.fetch_add(1, Ordering::Relaxed);
+        }
         self.loaded.lock().unwrap().push(md5.into());
     }
     fn unload_game(&self) {
@@ -1136,7 +1141,11 @@ impl slot_cheevos::Cheevos for CountingCheevos {
 
 #[test]
 fn retroachievements_load_the_hashed_game_see_every_frame_and_unload_at_the_end() {
-    let emu = spawn();
+    let emu = spawn_with_core(Box::new(MappedCore {
+        inner: MockCore::new(),
+        ram: vec![0; 0x100],
+        asked: Arc::new(Mutex::new(Vec::new())),
+    }));
     let cheevos = Arc::new(CountingCheevos::default());
     let (tx, rx) = mpsc::channel();
     emu.attach_cheevos(cheevos.clone(), rx, RaConsole::Gba);
@@ -1157,6 +1166,11 @@ fn retroachievements_load_the_hashed_game_see_every_frame_and_unload_at_the_end(
     assert_eq!(
         *cheevos.loaded.lock().unwrap(),
         ["0123456789abcdef0123456789abcdef"]
+    );
+    assert_eq!(
+        cheevos.loaded_blind.load(Ordering::Relaxed),
+        0,
+        "the game loaded before its memory was set, so every address failed"
     );
 
     let state = emu

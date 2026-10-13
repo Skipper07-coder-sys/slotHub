@@ -1,6 +1,5 @@
 //! The real [`Cheevos`]: one `rc_client` for the whole process.
 
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -8,6 +7,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::ffi::*;
 use crate::net::{self, Wiped};
 use crate::{Cheevos, Event, Region, Secret};
+
+/// Achievements from this id up are the server's notices, not real ones.
+const WARNING_ID: u32 = 101_000_001;
 
 /// Events beyond this many, not yet taken by the app, are dropped.
 const EVENTS_MAX: usize = 64;
@@ -18,9 +20,16 @@ static CLIENT: OnceLock<Arc<RcClient>> = OnceLock::new();
 
 static USER_AGENT: OnceLock<String> = OnceLock::new();
 
-thread_local! {
-    static MEMORY: RefCell<Vec<Region>> = const { RefCell::new(Vec::new()) };
-}
+/// The core memory achievements read. Not per thread: rcheevos checks every
+/// address once on the network thread as a game loads, and frames read it on
+/// the emulator thread.
+static MEMORY: Mutex<Memory> = Mutex::new(Memory(Vec::new()));
+
+struct Memory(Vec<Region>);
+
+// The regions point into the core, which keeps them until `set_memory` takes
+// them away; reads hold the lock, so none outlives them.
+unsafe impl Send for Memory {}
 
 struct RcClient(*mut rc_client_t);
 
@@ -90,7 +99,8 @@ unsafe extern "C" fn read_memory(
         return 0;
     }
     let out = std::slice::from_raw_parts_mut(buffer, num_bytes as usize);
-    MEMORY.with(|m| read_regions(&m.borrow(), address, out))
+    let memory = MEMORY.lock().unwrap_or_else(|e| e.into_inner());
+    read_regions(&memory.0, address, out)
 }
 
 /// Copies from the regions starting at `address`, stopping at a gap.
@@ -163,6 +173,14 @@ unsafe extern "C" fn event_handler(event: *const rc_client_event_t, _client: *mu
         RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED => {
             if let Some(a) = event.achievement.as_ref() {
                 let title = text(a.title);
+                if a.id >= WARNING_ID {
+                    eprintln!("slot: cheevos: server notice \"{title}\"");
+                    push(Event::Warning {
+                        title,
+                        description: text(a.description),
+                    });
+                    return;
+                }
                 eprintln!("slot: cheevos: {}", unlock_line(&title, a.points));
                 push(Event::Unlocked {
                     title,
@@ -337,7 +355,7 @@ impl Cheevos for RcClient {
     }
 
     fn set_memory(&self, regions: Vec<Region>) {
-        MEMORY.with(|m| *m.borrow_mut() = regions);
+        MEMORY.lock().unwrap_or_else(|e| e.into_inner()).0 = regions;
     }
 
     fn do_frame(&self) {
@@ -366,6 +384,25 @@ impl Cheevos for RcClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn memory_set_on_one_thread_is_read_on_another() {
+        static RAM: [u8; 4] = [9, 8, 7, 6];
+        MEMORY.lock().unwrap().0 = vec![Region {
+            start: 0x8000,
+            ptr: RAM.as_ptr(),
+            len: 4,
+        }];
+        let read = std::thread::spawn(|| {
+            let mut out = [0u8; 2];
+            let n = unsafe { read_memory(0x8001, out.as_mut_ptr(), 2, std::ptr::null_mut()) };
+            (n, out)
+        })
+        .join()
+        .unwrap();
+        MEMORY.lock().unwrap().0.clear();
+        assert_eq!(read, (2, [8, 7]));
+    }
 
     #[test]
     fn reads_find_the_region_and_cross_into_the_next() {

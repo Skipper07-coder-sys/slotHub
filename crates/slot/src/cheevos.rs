@@ -223,6 +223,9 @@ impl Account {
                 Event::Completed { title } => {
                     notices.push(Notice::Popup(Cheevo::completed(&title)))
                 }
+                Event::Warning { title, description } => {
+                    notices.push(Notice::Popup(Cheevo::warning(&title, &description)))
+                }
                 Event::GameLoaded { .. } | Event::GameFailed { .. } | Event::ServerError { .. } => {
                 }
             }
@@ -390,6 +393,34 @@ mod tests {
             [
                 Notice::Popup(Cheevo::unlocked("Hello", "Say hi", 5)),
                 Notice::Popup(Cheevo::completed("Game")),
+            ]
+        );
+    }
+
+    #[test]
+    fn server_notices_are_not_unlocks() {
+        let (_d, fake, mut a) = account();
+        fake.events.lock().unwrap().extend([
+            Event::Warning {
+                title: "Warning: Unknown Emulator".into(),
+                description: "Hardcore unlocks cannot be earned using this emulator.".into(),
+            },
+            Event::Warning {
+                title: "Unsupported Game Version".into(),
+                description: "This version of the game is known to not work.".into(),
+            },
+        ]);
+        assert_eq!(
+            a.poll(0),
+            [
+                Notice::Popup(Cheevo::warning(
+                    "Warning: Unknown Emulator",
+                    "Hardcore unlocks cannot be earned using this emulator."
+                )),
+                Notice::Popup(Cheevo::warning(
+                    "Unsupported Game Version",
+                    "This version of the game is known to not work."
+                )),
             ]
         );
     }

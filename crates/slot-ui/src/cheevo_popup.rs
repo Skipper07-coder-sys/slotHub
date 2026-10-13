@@ -45,6 +45,15 @@ impl Cheevo {
         }
     }
 
+    /// A notice from the server, such as "Unsupported Game Version".
+    pub fn warning(title: &str, description: &str) -> Cheevo {
+        Cheevo {
+            heading: "RetroAchievements Warning".into(),
+            title: title.into(),
+            detail: description.into(),
+        }
+    }
+
     pub fn completed(game: &str) -> Cheevo {
         Cheevo {
             heading: "Game Mastered".into(),
