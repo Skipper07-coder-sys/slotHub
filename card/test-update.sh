@@ -64,7 +64,7 @@ JSON
 }
 
 reset() {
-	rm -rf "$TMP/sd" "$TMP/bin" "$TMP/web" "$TMP"/*.log
+	rm -rf "${TMP:?}/sd" "${TMP:?}/bin" "${TMP:?}/web" "${TMP:?}"/*.log
 	mkdir -p "$TMP/sd/System" "$TMP/bin" "$TMP/web"
 	echo slot-binary > "$TMP/sd/System/slot"
 	cp "$SCRIPT" "$TMP/sd/System/update.sh"

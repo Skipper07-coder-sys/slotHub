@@ -53,7 +53,7 @@ run /mnt/sdcard/System/slot "core with a log"
 grep -q "slot: crash: SIGSEGV in thread slot-emu" "$TMP/card/crash/"slot-*.log 2>/dev/null \
 	|| { echo "the log of the run that crashed was not kept" >&2; exit 1; }
 run /usr/bin/busybox "not a frontend core"
-[ "$(ls "$TMP/card/crash/" | grep -c '^slot-.*\.log$')" = "1" ] \
+[ "$(find "$TMP/card/crash" -name 'slot-*.log' | wc -l | tr -d ' ')" = "1" ] \
 	|| { echo "kept a slot log for a crash that was not slot's" >&2; exit 1; }
 
 setup

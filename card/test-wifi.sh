@@ -27,7 +27,7 @@ make_fake() {
 
 # ip answers with an address once udhcpc has run, as the real lease would.
 reset() {
-	rm -rf "$TMP/net" "$TMP/run" "$TMP/ctrl" "$TMP"/*.log "$TMP/bin" "$TMP/leased" "$TMP/wifi.conf"
+	rm -rf "${TMP:?}/net" "${TMP:?}/run" "${TMP:?}/ctrl" "${TMP:?}"/*.log "${TMP:?}/bin" "${TMP:?}/leased" "${TMP:?}/wifi.conf"
 	mkdir -p "$TMP/net/wlan0" "$TMP/run" "$TMP/ctrl" "$TMP/bin"
 	make_fake wpa_cli "$TMP/cli.log" 'echo "wpa_state=${FAKE_STATE:-COMPLETED}"'
 	make_fake wpa_supplicant "$TMP/sup.log"

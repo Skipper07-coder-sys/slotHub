@@ -26,7 +26,7 @@ make_fake() {
 }
 
 reset() {
-	rm -rf "$TMP/net" "$TMP/run" "$TMP/ctrl" "$TMP"/*.log "$TMP/bin"
+	rm -rf "${TMP:?}/net" "${TMP:?}/run" "${TMP:?}/ctrl" "${TMP:?}"/*.log "${TMP:?}/bin"
 	mkdir -p "$TMP/net/wlan0" "$TMP/net/wlan1" "$TMP/run" "$TMP/ctrl" "$TMP/modules" "$TMP/bin"
 	: > "$TMP/modules/8821cs.ko"
 	if [ "$1" = yes ]; then
