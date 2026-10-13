@@ -278,6 +278,7 @@ fetch() {
 			case "$file" in .*) continue ;; esac
 			is_rom "$dir" "$file" || continue
 			stem="${file%.*}"
+			# shellcheck disable=SC2010 # one exact name, matched case-insensitively
 			have="$(ls "$SD/Labels/$dir" 2>/dev/null | grep -i -x -F "$stem.png")"
 			[ -n "$have" ] && continue
 			printf '%s\t%s\t%s\n' "$dir" "$stem" "$rom" >> "$list"

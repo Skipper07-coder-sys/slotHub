@@ -17,7 +17,7 @@ fail() {
 # device seen, holding its info text. "A2DP: yes" in an info stands for a BlueZ
 # media transport, which the fake dbus-send lists.
 reset() {
-	rm -rf "$TMP/bin" "$TMP/run" "$TMP/bt" "$TMP/bt-pending" "$TMP/hci0" "$TMP"/*.log "$TMP/bluetooth.conf" "$TMP/status"
+	rm -rf "${TMP:?}/bin" "${TMP:?}/run" "${TMP:?}/bt" "${TMP:?}/bt-pending" "${TMP:?}/hci0" "${TMP:?}"/*.log "${TMP:?}/bluetooth.conf" "${TMP:?}/status"
 	mkdir -p "$TMP/bin" "$TMP/run" "$TMP/bt"
 	cat > "$TMP/bin/bluetoothctl" <<FAKE
 #!/bin/sh
