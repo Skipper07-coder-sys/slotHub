@@ -650,6 +650,13 @@ impl App {
             None => {
                 self.state.cart = None;
                 self.state.cart_platform = None;
+                // The shelf opens on the game played last.
+                let last = self.state.last_cart.clone();
+                let platform = self.state.last_cart_platform;
+                if let Some((at, i)) = last.and_then(|stem| self.seat_of(&stem, platform)) {
+                    self.shelf_at = at;
+                    self.shelf_mut().select(i);
+                }
                 self.name_pending = true;
             }
         }
@@ -2824,6 +2831,10 @@ impl App {
         let platform = self.seated_cart().map(|c| c.platform);
         if self.state.cart == cart && self.state.cart_platform == platform {
             return;
+        }
+        if cart.is_some() {
+            self.state.last_cart = cart.clone();
+            self.state.last_cart_platform = platform;
         }
         self.state.cart = cart;
         self.state.cart_platform = platform;

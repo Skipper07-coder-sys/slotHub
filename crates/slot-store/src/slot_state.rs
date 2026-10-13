@@ -19,6 +19,10 @@ pub const FF_SPEED_DEFAULT: u8 = 6;
 pub struct SlotState {
     pub cart: Option<String>,
     pub cart_platform: Option<Platform>,
+    /// The last cart played, kept after it is ejected so the shelf can open
+    /// on it.
+    pub last_cart: Option<String>,
+    pub last_cart_platform: Option<Platform>,
     pub brightness: u8,
     pub blue_light: u8,
     pub volume: u8,
@@ -93,6 +97,8 @@ impl Default for SlotState {
         SlotState {
             cart: None,
             cart_platform: None,
+            last_cart: None,
+            last_cart_platform: None,
             brightness: 5,
             blue_light: 0,
             volume: 60,
@@ -132,9 +138,11 @@ pub fn read_slot_state(root: &Path) -> SlotState {
 
 pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
     let text = format!(
-        "cart={}\ncart_platform={}\nbrightness={}\nblue_light={}\nvolume={}\nvolume_hp={}\nmuted={}\nmuted_hp={}\nclock_set={}\nutc_offset_min={}\nrumble={}\nff_speed={}\nff_sound={}\ncolour_correction={}\nshader_gba={}\nshader_gb={}\neject_save={}\nturbo={}\nrewind={}\ngb_palettes={}\ngb_palette={}\nbluetooth={}\nwifi={}\n",
+        "cart={}\ncart_platform={}\nlast_cart={}\nlast_cart_platform={}\nbrightness={}\nblue_light={}\nvolume={}\nvolume_hp={}\nmuted={}\nmuted_hp={}\nclock_set={}\nutc_offset_min={}\nrumble={}\nff_speed={}\nff_sound={}\ncolour_correction={}\nshader_gba={}\nshader_gb={}\neject_save={}\nturbo={}\nrewind={}\ngb_palettes={}\ngb_palette={}\nbluetooth={}\nwifi={}\n",
         s.cart.as_deref().unwrap_or(""),
         s.cart_platform.map_or(String::new(), platform_key),
+        s.last_cart.as_deref().unwrap_or(""),
+        s.last_cart_platform.map_or(String::new(), platform_key),
         s.brightness,
         s.blue_light,
         s.volume,
@@ -163,6 +171,8 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
 fn parse(text: &str) -> Option<SlotState> {
     let mut cart = None;
     let mut cart_platform = None;
+    let mut last_cart = None;
+    let mut last_cart_platform = None;
     let mut brightness = None;
     let mut blue_light = None;
     let mut volume = None;
@@ -191,6 +201,8 @@ fn parse(text: &str) -> Option<SlotState> {
         match key {
             "cart" => cart = Some(value.to_string()),
             "cart_platform" => cart_platform = platform_value(value),
+            "last_cart" => last_cart = (!value.is_empty()).then(|| value.to_string()),
+            "last_cart_platform" => last_cart_platform = platform_value(value),
             "brightness" => brightness = Some(level(value, BRIGHTNESS_MAX)?),
             "blue_light" => blue_light = Some(level(value, BLUE_LIGHT_MAX)?),
             "volume" => volume = Some(level(value, VOLUME_MAX)?),
@@ -220,6 +232,8 @@ fn parse(text: &str) -> Option<SlotState> {
     Some(SlotState {
         cart: (!cart.is_empty()).then_some(cart),
         cart_platform,
+        last_cart,
+        last_cart_platform,
         brightness: brightness?,
         blue_light: blue_light?,
         volume: volume?,
