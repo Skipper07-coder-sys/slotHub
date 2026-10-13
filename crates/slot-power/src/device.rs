@@ -14,6 +14,59 @@ const DEV_INPUT: &str = "/dev/input";
 
 const RUN_DIR: &str = "/run";
 
+/// BaseOS's opt-out from charge-only boots: while it exists, a boot that
+/// BaseOS reads as "plugged in while off" starts normally instead of
+/// powering off. A restart can be misread that way, so slot sets it just for
+/// the boot after its own restart, as Knulli does with /boot/restart.flag.
+const CHARGER_OFF_SKIP: &str = "/data/no-charger-off";
+const RESTART_MARK: &str = "slot restart\n";
+
+/// Leaves the opt-out for the next boot, unless one is already there.
+pub fn mark_restart(skip: &Path) -> std::io::Result<()> {
+    if skip.exists() {
+        return Ok(());
+    }
+    on_writable_parent(skip, || fs::write(skip, RESTART_MARK))
+}
+
+/// Takes back an opt-out slot left for a restart; one set by hand stays.
+/// Returns whether one was removed.
+pub fn clear_restart_mark(skip: &Path) -> std::io::Result<bool> {
+    match fs::read_to_string(skip) {
+        Ok(text) if text == RESTART_MARK => {
+            on_writable_parent(skip, || fs::remove_file(skip))?;
+            Ok(true)
+        }
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Runs `change`, remounting the parent read-write for it if it is mounted
+/// read-only, and read-only again after.
+fn on_writable_parent(
+    path: &Path,
+    change: impl Fn() -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    match change() {
+        Err(e) if e.kind() == std::io::ErrorKind::ReadOnlyFilesystem => {
+            let mount = path.parent().unwrap_or(Path::new("/"));
+            let remount = |mode: &str| {
+                Command::new("mount")
+                    .args(["-o", &format!("remount,{mode}")])
+                    .arg(mount)
+                    .status()
+            };
+            remount("rw")?;
+            let changed = change();
+            let _ = remount("ro");
+            changed
+        }
+        other => other,
+    }
+}
+
 pub fn uptime_seconds(s: &str) -> Option<String> {
     let first = s.split_whitespace().next()?;
     if !first.chars().all(|c| c.is_ascii_digit() || c == '.') {
@@ -147,6 +200,11 @@ impl DevicePlatform {
 
     pub fn trace_boot(&self) {
         self.breadcrumb("boot: platform up, trace working");
+        match clear_restart_mark(Path::new(CHARGER_OFF_SKIP)) {
+            Ok(true) => self.breadcrumb("boot: charge-only skip from the restart cleared"),
+            Ok(false) => {}
+            Err(e) => eprintln!("slot: restart: could not clear {CHARGER_OFF_SKIP}: {e}"),
+        }
     }
 
     pub fn report(&self) -> String {
@@ -454,6 +512,9 @@ impl Platform for DevicePlatform {
 
     fn restart(&mut self) -> ! {
         self.breadcrumb("restart: reached slot, about to sync");
+        if let Err(e) = mark_restart(Path::new(CHARGER_OFF_SKIP)) {
+            self.breadcrumb(&format!("restart: could not set {CHARGER_OFF_SKIP}: {e}"));
+        }
         let _ = Command::new("sync").status();
         self.breadcrumb("restart: sync returned, about to signal init");
         let _ = Command::new("reboot").status();

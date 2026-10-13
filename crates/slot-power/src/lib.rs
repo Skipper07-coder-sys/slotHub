@@ -4,8 +4,9 @@ mod power;
 mod sim;
 
 pub use device::{
-    has_bit, motor_change, pick_governor, read_only, read_only_in, record_first_frame, rumble_node,
-    trace_first_frame, uptime_seconds, DevicePlatform,
+    clear_restart_mark, has_bit, mark_restart, motor_change, pick_governor, read_only,
+    read_only_in, record_first_frame, rumble_node, trace_first_frame, uptime_seconds,
+    DevicePlatform,
 };
 pub use motor::Motor;
 pub use power::Power;
