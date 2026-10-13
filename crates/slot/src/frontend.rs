@@ -406,6 +406,7 @@ impl Frontend {
             slot_store::Shader::Crt => ScreenEffect::Crt,
             slot_store::Shader::LcdGrid => ScreenEffect::LcdGrid,
             slot_store::Shader::CurvedCrt => ScreenEffect::CurvedCrt,
+            slot_store::Shader::LcdGridBright => ScreenEffect::LcdGridBright,
         });
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());

@@ -28,13 +28,14 @@ pub enum Toast {
     ShaderCrt,
     ShaderLcdGrid,
     ShaderCurvedCrt,
+    ShaderLcdGridBright,
     CardUnwritable,
     CrashCaught,
     Palette(GbPalette),
 }
 
 impl Toast {
-    const FIXED: [Toast; 22] = [
+    const FIXED: [Toast; 23] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -55,6 +56,7 @@ impl Toast {
         Toast::ShaderCrt,
         Toast::ShaderLcdGrid,
         Toast::ShaderCurvedCrt,
+        Toast::ShaderLcdGridBright,
         Toast::CardUnwritable,
         Toast::CrashCaught,
     ];
@@ -106,6 +108,7 @@ impl Toast {
             Toast::ShaderCrt => "Shader: CRT",
             Toast::ShaderLcdGrid => "Shader: LCD Grid",
             Toast::ShaderCurvedCrt => "Shader: Curved CRT",
+            Toast::ShaderLcdGridBright => "Shader: LCD Grid Bright",
             Toast::CardUnwritable => "Can't write to SD card",
             Toast::CrashCaught => "Crash report saved",
             Toast::Palette(p) => p.label(),

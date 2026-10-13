@@ -22,6 +22,7 @@ pub enum ScreenEffect {
     Crt,
     LcdGrid,
     CurvedCrt,
+    LcdGridBright,
 }
 
 impl ScreenEffect {

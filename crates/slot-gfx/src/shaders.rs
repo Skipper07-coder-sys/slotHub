@@ -112,6 +112,26 @@ void main() {
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
+    } else if (u_mode > 10.5 || (u_mode > 8.5 && u_mode < 9.5)) {
+        vec2 tl = floor(uv * u_src - 0.4999);
+        float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;
+        float rx = ps.x * 3.0;
+        vec3 lcol = vec3(smear(sx + 1.0, rx, 1.5, true), smear(sx, rx, 1.5, true),
+                         smear(sx - 1.0, rx, 1.5, true));
+        vec3 rcol = vec3(smear(sx - 2.0, rx, 1.5, true), smear(sx - 3.0, rx, 1.5, true),
+                         smear(sx - 4.0, rx, 1.5, true));
+        float sy = uv.y * u_src.y - 0.4999 - tl.y;
+        float tcol = smear(sy, ps.y, 0.63, false);
+        float bcol = smear(sy - 1.0, ps.y, 0.63, false);
+        vec3 sum = lcd_texel(tl) * lcol * tcol
+                 + lcd_texel(tl + vec2(1.0, 0.0)) * rcol * tcol
+                 + lcd_texel(tl + vec2(0.0, 1.0)) * lcol * bcol
+                 + lcd_texel(tl + vec2(1.0, 1.0)) * rcol * bcol;
+        c = pow(sum * pow(0.75, 2.2), vec3(1.0 / 2.2));
+        // LCD Grid Bright: the light the grid takes, given back for bright rooms.
+        if (u_mode > 10.5) {
+            c *= 1.3;
+        }
     } else if (u_mode > 9.5) {
         vec2 span = u_pic.zw - u_pic.xy;
         vec2 q = (uv - u_pic.xy) / span;
@@ -137,22 +157,6 @@ void main() {
         if (corner.y <= corner.x || corner.x < 0.0001) {
             c = vec3(0.0);
         }
-    } else if (u_mode > 8.5) {
-        vec2 tl = floor(uv * u_src - 0.4999);
-        float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;
-        float rx = ps.x * 3.0;
-        vec3 lcol = vec3(smear(sx + 1.0, rx, 1.5, true), smear(sx, rx, 1.5, true),
-                         smear(sx - 1.0, rx, 1.5, true));
-        vec3 rcol = vec3(smear(sx - 2.0, rx, 1.5, true), smear(sx - 3.0, rx, 1.5, true),
-                         smear(sx - 4.0, rx, 1.5, true));
-        float sy = uv.y * u_src.y - 0.4999 - tl.y;
-        float tcol = smear(sy, ps.y, 0.63, false);
-        float bcol = smear(sy - 1.0, ps.y, 0.63, false);
-        vec3 sum = lcd_texel(tl) * lcol * tcol
-                 + lcd_texel(tl + vec2(1.0, 0.0)) * rcol * tcol
-                 + lcd_texel(tl + vec2(0.0, 1.0)) * lcol * bcol
-                 + lcd_texel(tl + vec2(1.0, 1.0)) * rcol * bcol;
-        c = pow(sum * pow(0.75, 2.2), vec3(1.0 / 2.2));
     } else if (u_mode > 7.5) {
         vec2 p = uv * u_src;
         vec2 i = floor(p) + 0.5;

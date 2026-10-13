@@ -6,7 +6,7 @@ Changes in this fork, on top of slot 1.6.0.
 
 - Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
 - The shelf shows where you are while it moves: a row of five first letters over the carts, the current one in the middle, gliding on the same spring as the carts, and the selected game's name pressed into the slot. Names too long for the slot scroll. They stay up while you scroll, even holding a direction, and fade away about 3 seconds after the shelf stops, or once a long name has scrolled all the way round, and the name sinks into the slot with the cart. This replaces the faint letter that showed in the slot after an Up / Down jump. The letters use Inter SemiBold (SIL OFL 1.1, `licenses/inter-OFL-1.1.txt`).
-- Six more screen shaders: LCD1x, LCD Grid (lcd-grid-v2), Retro, Bevel, CRT and Curved CRT, ported from the libretro shader collection. Both the GBA and the GB / GBC shader settings now offer every shader.
+- Seven more screen shaders: LCD1x, LCD Grid (lcd-grid-v2), LCD Grid Bright (the same, 1.3x brighter for bright rooms), Retro, Bevel, CRT and Curved CRT, ported from the libretro shader collection. Both the GBA and the GB / GBC shader settings now offer every shader.
 - The Self-Test and Bug Report rows are gone from the Update page. The self-test after an update still runs quietly and crash reports are still saved, for remote debugging.
 
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)

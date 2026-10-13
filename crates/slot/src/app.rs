@@ -2451,6 +2451,7 @@ impl App {
             Shader::Crt => Toast::ShaderCrt,
             Shader::LcdGrid => Toast::ShaderLcdGrid,
             Shader::CurvedCrt => Toast::ShaderCurvedCrt,
+            Shader::LcdGridBright => Toast::ShaderLcdGridBright,
         };
         self.persist();
         self.hud.toast(said, self.now());
@@ -4577,6 +4578,7 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Crt => QuickValue::Crt,
         Shader::LcdGrid => QuickValue::LcdGrid,
         Shader::CurvedCrt => QuickValue::CurvedCrt,
+        Shader::LcdGridBright => QuickValue::LcdGridBright,
     }
 }
 

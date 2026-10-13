@@ -59,23 +59,25 @@ pub enum Shader {
     Crt,
     LcdGrid,
     CurvedCrt,
+    LcdGridBright,
 }
 
 impl Shader {
-    pub const GBA: [Shader; 11] = [
+    pub const GBA: [Shader; 12] = [
         Shader::Off,
         Shader::Lcd3x,
         Shader::Grid,
         Shader::Dot,
         Shader::Lcd1x,
         Shader::LcdGrid,
+        Shader::LcdGridBright,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
         Shader::CurvedCrt,
         Shader::Simpletex,
     ];
-    pub const GB: [Shader; 11] = [
+    pub const GB: [Shader; 12] = [
         Shader::Off,
         Shader::Grid,
         Shader::Simpletex,
@@ -83,6 +85,7 @@ impl Shader {
         Shader::Dot,
         Shader::Lcd1x,
         Shader::LcdGrid,
+        Shader::LcdGridBright,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
@@ -102,6 +105,7 @@ impl Shader {
             Shader::Crt => "crt",
             Shader::LcdGrid => "lcdgrid",
             Shader::CurvedCrt => "crtcurve",
+            Shader::LcdGridBright => "lcdgridbright",
         }
     }
 
@@ -118,6 +122,7 @@ impl Shader {
             Shader::Crt,
             Shader::LcdGrid,
             Shader::CurvedCrt,
+            Shader::LcdGridBright,
         ]
         .into_iter()
         .find(|s| s.name() == name)
