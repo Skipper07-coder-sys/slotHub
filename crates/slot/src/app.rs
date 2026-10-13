@@ -1364,12 +1364,15 @@ impl App {
         }
     }
 
-    /// The CPU runs only as hard as needed: clocks follow the load, except in
-    /// fast-forward and link play, which hold the top clock, and with the lid
-    /// shut, which holds the lowest.
+    /// The CPU runs only as hard as needed: clocks follow the load in the
+    /// menus, a running game holds the top clock, and a shut lid holds the
+    /// lowest. A game can't follow the load: its thread sleeps until the next
+    /// frame, so schedutil reads it as idle and drops to 480 MHz, and then
+    /// frames come late (slowdown, lag, audio underruns).
     pub fn cpu_mode(&self) -> CpuMode {
         match self.phase {
             Phase::Doze { .. } => CpuMode::Rest,
+            Phase::Inserting { .. } | Phase::Playing { .. } => CpuMode::Full,
             _ if self.ff_on || self.link_active() => CpuMode::Full,
             _ => CpuMode::Balanced,
         }
