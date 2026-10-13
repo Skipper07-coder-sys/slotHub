@@ -2755,6 +2755,15 @@ impl App {
             }
             return true;
         }
+        if action == Action::PanelCalibrationToggle {
+            self.change_setting(QuickRow::PanelCalibration, true);
+            let said = match self.state.panel_calibration {
+                true => Toast::CalibrationOn,
+                false => Toast::CalibrationOff,
+            };
+            self.hud.toast(said, self.now());
+            return true;
+        }
         if action == Action::ColourCorrectionToggle {
             self.change_setting(QuickRow::ColourCorrection, true);
             let said = match self.state.colour_correction {

@@ -2292,3 +2292,26 @@ fn the_shader_shortcut_does_nothing_in_the_save_state_switcher() {
     assert_eq!(slot_store::read_slot_state(d.path()).shader_gba, before);
     assert_eq!(a.toast(), None);
 }
+
+#[test]
+fn the_calibration_shortcut_flips_the_panel_and_names_where_it_landed() {
+    let d = common::tmp_root_with_carts(&["Emerald", "Fusion"]);
+    let (mut s, _motor) = common::session_with_platform(d.path());
+    s.app_mut().apply(slot_input::Action::Insert);
+
+    for _ in 0..2 {
+        let before = s.app().panel_calibration();
+        s.app_mut()
+            .apply(slot_input::Action::PanelCalibrationToggle);
+        assert_eq!(
+            s.app().panel_calibration(),
+            !before,
+            "SELECT+X did not flip it"
+        );
+        let want = match before {
+            true => slot_ui::Toast::CalibrationOff,
+            false => slot_ui::Toast::CalibrationOn,
+        };
+        assert_eq!(s.app().toast(), Some(want));
+    }
+}

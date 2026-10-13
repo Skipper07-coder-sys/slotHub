@@ -45,6 +45,7 @@ const PAGES: [(&str, &[Row]); 5] = [
             ("SEL+Left/Right", "Blue light", true),
             ("SEL+B / A", "Prev / next shader", true),
             ("SEL+Y", "Color correction", true),
+            ("SEL+X", "Panel calibration", true),
             ("SEL+L2 / R2", "GB palette (if on)", true),
             ("L1 / R1", "GB stretch / 1:1", true),
             ("VOL+ / VOL-", "Volume", true),
