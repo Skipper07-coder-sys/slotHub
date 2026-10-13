@@ -277,6 +277,7 @@ fn each_platform_keeps_its_own_shader_wraps_and_starts_on_grid_and_simpletex() {
         (Btn::Right, Shader::Lcd1x, QuickValue::Lcd1x),
         (Btn::Left, Shader::Dot, QuickValue::Dot),
         (Btn::Left, Shader::Grid, QuickValue::Grid),
+        (Btn::Left, Shader::Lcd3xBright, QuickValue::Lcd3xBright),
         (Btn::Left, Shader::Lcd3x, QuickValue::Lcd3x),
         (Btn::Left, Shader::Off, QuickValue::Off),
         (Btn::Left, Shader::Simpletex, QuickValue::Simpletex),

@@ -2229,6 +2229,11 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderPrev,
+            Shader::Lcd3xBright,
+            slot_ui::Toast::ShaderLcd3xBright,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
             Shader::Lcd3x,
             slot_ui::Toast::ShaderLcd3x,
         ),
