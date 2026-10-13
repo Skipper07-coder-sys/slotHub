@@ -129,8 +129,6 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::SlotUpdate,
             QuickRow::BaseOsUpdate,
             QuickRow::WifiArt,
-            QuickRow::SelfTest,
-            QuickRow::BugReport,
             QuickRow::Cheevos
         ]
     );
@@ -145,10 +143,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "RetroAchievements"
         ]
     );
-    assert_eq!(
-        QuickRow::UPDATE.map(QuickRow::label),
-        ["slot", "BaseOS", "Self-Test", "Bug Report"]
-    );
+    assert_eq!(QuickRow::UPDATE.map(QuickRow::label), ["slot", "BaseOS"]);
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
@@ -178,6 +173,12 @@ fn the_values_read_as_the_menu_prints_them() {
             "Grid",
             "Dot",
             "Simpletex",
+            "LCD1x",
+            "Retro",
+            "Bevel",
+            "CRT",
+            "LCD Grid",
+            "Curved CRT",
             "Connected",
             "Not Connected",
             "Starting...",

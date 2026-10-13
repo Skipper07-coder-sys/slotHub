@@ -22,14 +22,19 @@ pub enum Toast {
     ShaderGrid,
     ShaderDot,
     ShaderSimpletex,
+    ShaderLcd1x,
+    ShaderRetro,
+    ShaderBevel,
+    ShaderCrt,
+    ShaderLcdGrid,
+    ShaderCurvedCrt,
     CardUnwritable,
     CrashCaught,
-    SelfTestProblems,
     Palette(GbPalette),
 }
 
 impl Toast {
-    const FIXED: [Toast; 17] = [
+    const FIXED: [Toast; 22] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -44,9 +49,14 @@ impl Toast {
         Toast::ShaderGrid,
         Toast::ShaderDot,
         Toast::ShaderSimpletex,
+        Toast::ShaderLcd1x,
+        Toast::ShaderRetro,
+        Toast::ShaderBevel,
+        Toast::ShaderCrt,
+        Toast::ShaderLcdGrid,
+        Toast::ShaderCurvedCrt,
         Toast::CardUnwritable,
         Toast::CrashCaught,
-        Toast::SelfTestProblems,
     ];
 
     pub fn all() -> Vec<Toast> {
@@ -90,9 +100,14 @@ impl Toast {
             Toast::ShaderGrid => "Shader: Grid",
             Toast::ShaderDot => "Shader: Dot",
             Toast::ShaderSimpletex => "Shader: Simpletex",
+            Toast::ShaderLcd1x => "Shader: LCD1x",
+            Toast::ShaderRetro => "Shader: Retro",
+            Toast::ShaderBevel => "Shader: Bevel",
+            Toast::ShaderCrt => "Shader: CRT",
+            Toast::ShaderLcdGrid => "Shader: LCD Grid",
+            Toast::ShaderCurvedCrt => "Shader: Curved CRT",
             Toast::CardUnwritable => "Can't write to SD card",
             Toast::CrashCaught => "Crash report saved",
-            Toast::SelfTestProblems => "Self-test failed",
             Toast::Palette(p) => p.label(),
         }
     }

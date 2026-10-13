@@ -28,7 +28,7 @@ use crate::audio::Sfx;
 use crate::bluetooth::{bt_jobs, BtJob, BtJobs, BtState};
 use crate::cheevos::{cheevos_client, Account, Notice};
 use crate::core_picker::{Chip, CorePicker, Outcome, Press};
-use crate::diag::{diag_jobs, DiagJob, DiagJobs, DiagState, Radios};
+use crate::diag::{diag_jobs, DiagJob, DiagJobs, Radios};
 use crate::drive::{drive_jobs, library_marks, DriveJobs, DriveState};
 use crate::link_kind::{link_carried, link_kind, serial_option, LinkKind};
 use crate::link_radio::{radio_jobs, LinkRole, RadioJob, RadioJobs};
@@ -418,8 +418,6 @@ pub struct App {
     ff_on: bool,
     /// The run before crashed: this one starts on the shelf, not in a game.
     crashed: bool,
-    /// The self-test after an update is under way; problems end in a toast.
-    selftest_watch: bool,
     /// A fetch is under way; its end rescans the shelves for the new labels.
     art_running: bool,
     /// While the drive is on: what the library looked like at the last look,
@@ -482,7 +480,6 @@ impl App {
             diag: diag_jobs(),
             ff_on: false,
             crashed: false,
-            selftest_watch: false,
             art_running: false,
             drive_marks: None,
             drive_look_at: 0,
@@ -909,8 +906,6 @@ impl App {
             | QuickRow::BaseOsUpdate
             | QuickRow::WifiDrive
             | QuickRow::WifiArt
-            | QuickRow::SelfTest
-            | QuickRow::BugReport
             | QuickRow::Cheevos => None,
         }
     }
@@ -926,8 +921,6 @@ impl App {
             QuickRow::Bluetooth => Some(self.bt_row_text()),
             QuickRow::WifiDrive => Some(self.drive_text()),
             QuickRow::WifiArt => Some(self.art_text()),
-            QuickRow::SelfTest => Some(self.diag.state().test_text()),
-            QuickRow::BugReport => Some(self.diag.state().report_text()),
             QuickRow::Cheevos => Some(self.cheevos.text()),
             _ => None,
         }
@@ -1187,14 +1180,8 @@ impl App {
             if self.now() >= at {
                 self.update_confirm_at = None;
                 self.update.confirm();
+                // Quietly: its log stays on the card for remote debugging.
                 self.diag.run(DiagJob::SelfTestOnce, self.radios_up());
-                self.selftest_watch = true;
-            }
-        }
-        if self.selftest_watch && !self.diag.state().running() {
-            self.selftest_watch = false;
-            if matches!(self.diag.state(), DiagState::Tested(n) if n > 0) {
-                self.hud.toast(Toast::SelfTestProblems, self.now());
             }
         }
     }
@@ -1229,12 +1216,6 @@ impl App {
 
     pub fn set_diag_jobs(&mut self, jobs: Box<dyn DiagJobs>) {
         self.diag = jobs;
-    }
-
-    fn run_diag(&mut self, job: DiagJob) {
-        if !self.diag.state().running() {
-            self.diag.run(job, self.radios_up());
-        }
     }
 
     pub fn bt_device_name(&self) -> Option<String> {
@@ -2071,8 +2052,6 @@ impl App {
             QuickRow::WifiNetwork => self.rejoin_wifi(),
             QuickRow::WifiDrive => self.toggle_drive(),
             QuickRow::WifiArt => self.fetch_art(),
-            QuickRow::SelfTest => self.run_diag(DiagJob::SelfTest),
-            QuickRow::BugReport => self.run_diag(DiagJob::BugReport),
             QuickRow::Cheevos => self.press_cheevos(),
         }
     }
@@ -2439,8 +2418,6 @@ impl App {
             | QuickRow::SlotUpdate
             | QuickRow::BaseOsUpdate
             | QuickRow::WifiArt
-            | QuickRow::SelfTest
-            | QuickRow::BugReport
             | QuickRow::Cheevos => return,
             QuickRow::WifiNetwork => return self.rejoin_wifi(),
             QuickRow::WifiDrive => return self.toggle_drive(),
@@ -2468,6 +2445,12 @@ impl App {
             Shader::Grid => Toast::ShaderGrid,
             Shader::Dot => Toast::ShaderDot,
             Shader::Simpletex => Toast::ShaderSimpletex,
+            Shader::Lcd1x => Toast::ShaderLcd1x,
+            Shader::Retro => Toast::ShaderRetro,
+            Shader::Bevel => Toast::ShaderBevel,
+            Shader::Crt => Toast::ShaderCrt,
+            Shader::LcdGrid => Toast::ShaderLcdGrid,
+            Shader::CurvedCrt => Toast::ShaderCurvedCrt,
         };
         self.persist();
         self.hud.toast(said, self.now());
@@ -4588,6 +4571,12 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Grid => QuickValue::Grid,
         Shader::Dot => QuickValue::Dot,
         Shader::Simpletex => QuickValue::Simpletex,
+        Shader::Lcd1x => QuickValue::Lcd1x,
+        Shader::Retro => QuickValue::Retro,
+        Shader::Bevel => QuickValue::Bevel,
+        Shader::Crt => QuickValue::Crt,
+        Shader::LcdGrid => QuickValue::LcdGrid,
+        Shader::CurvedCrt => QuickValue::CurvedCrt,
     }
 }
 
