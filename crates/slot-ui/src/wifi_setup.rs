@@ -3,6 +3,7 @@ use slot_gfx::{Draw, TexId, OUT_H, OUT_W};
 use crate::keyboard::{KeyPress, Keyboard, KEY_H};
 use crate::plate::{hint_face, UndoFace, HINT_H};
 use crate::text::{self, Layout};
+use crate::ticker::{ellipsize, overflows, Ticker};
 
 pub(crate) const INK: [u8; 3] = [0xf6, 0xf4, 0xef];
 pub(crate) const DIM: [u8; 3] = [0x9a, 0x9a, 0xa4];
@@ -41,6 +42,8 @@ pub enum WifiSetup {
     List {
         networks: Vec<WifiNetwork>,
         cursor: usize,
+        /// Names the card already has a password for.
+        saved: Vec<String>,
     },
     Keys {
         ssid: String,
@@ -65,15 +68,28 @@ pub enum SetupKey {
 pub enum SetupOutcome {
     Stay,
     Rescan,
-    Join { ssid: String, psk: String },
+    Join {
+        ssid: String,
+        psk: String,
+    },
+    /// A network the card already has the password for.
+    Rejoin {
+        ssid: String,
+    },
     Back,
 }
 
 impl WifiSetup {
     pub fn scanned(networks: Vec<WifiNetwork>) -> WifiSetup {
+        WifiSetup::scanned_with(networks, Vec::new())
+    }
+
+    /// The scan's networks, the ones in `saved` joining without a password.
+    pub fn scanned_with(networks: Vec<WifiNetwork>, saved: Vec<String>) -> WifiSetup {
         WifiSetup::List {
             networks,
             cursor: 0,
+            saved,
         }
     }
 
@@ -97,7 +113,11 @@ impl WifiSetup {
                 SetupKey::B => SetupOutcome::Back,
                 _ => SetupOutcome::Stay,
             },
-            WifiSetup::List { networks, cursor } => {
+            WifiSetup::List {
+                networks,
+                cursor,
+                saved,
+            } => {
                 let n = networks.len();
                 match key {
                     SetupKey::Up if n > 0 => *cursor = (*cursor + n - 1) % n,
@@ -108,6 +128,11 @@ impl WifiSetup {
                         let Some(net) = networks.get(*cursor) else {
                             return SetupOutcome::Rescan;
                         };
+                        if saved.contains(&net.ssid) {
+                            return SetupOutcome::Rejoin {
+                                ssid: net.ssid.clone(),
+                            };
+                        }
                         if !net.secured {
                             return SetupOutcome::Join {
                                 ssid: net.ssid.clone(),
@@ -116,6 +141,13 @@ impl WifiSetup {
                         }
                         *self = WifiSetup::password(&net.ssid);
                     }
+                    // A saved network whose password has changed.
+                    SetupKey::Y => match networks.get(*cursor) {
+                        Some(net) if net.secured && saved.contains(&net.ssid) => {
+                            *self = WifiSetup::password(&net.ssid);
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
                 SetupOutcome::Stay
@@ -136,7 +168,11 @@ impl WifiSetup {
                 canvas.text_centred("Looking for networks...", 200, 48, BODY_PX, DIM);
                 canvas.hints(&[("B", "Back")]);
             }
-            WifiSetup::List { networks, cursor } => {
+            WifiSetup::List {
+                networks,
+                cursor,
+                saved,
+            } => {
                 canvas.text_centred("Wi-Fi Networks", TITLE_Y, TITLE_H, TITLE_PX, INK);
                 if networks.is_empty() {
                     canvas.text_centred("No networks found", 200, 48, BODY_PX, DIM);
@@ -147,12 +183,19 @@ impl WifiSetup {
                     let lit = i == *cursor;
                     let (bg, ink) = if lit { (LIT, LIT_INK) } else { (PAPER, INK) };
                     canvas.fill(EDGE, y, OUT_W - 2 * EDGE, ROW_H, bg);
-                    let right = format!("{} {}", bars(net.signal), lock(net.secured));
+                    let right = right_text(net, saved);
                     let rw = canvas.text_right(&right, OUT_W - EDGE - 14, y, ROW_H, BODY_PX, ink);
-                    let room = OUT_W - 2 * EDGE - 28 - rw - 16;
-                    canvas.text_left(&net.ssid, EDGE + 14, y, room, ROW_H, ink);
+                    canvas.list_name(&net.ssid, rw, y, lit, ink);
                 }
-                canvas.hints(&[("B", "Back"), ("X", "Rescan"), ("A", "Join")]);
+                match networks.get(*cursor) {
+                    Some(net) if net.secured && saved.contains(&net.ssid) => canvas.hints(&[
+                        ("B", "Back"),
+                        ("X", "Rescan"),
+                        ("Y", "New Password"),
+                        ("A", "Join"),
+                    ]),
+                    _ => canvas.hints(&[("B", "Back"), ("X", "Rescan"), ("A", "Join")]),
+                }
             }
             WifiSetup::Keys { ssid, keys } => {
                 let title = format!("Password for {ssid}");
@@ -167,6 +210,21 @@ impl WifiSetup {
             }
         }
         canvas.face()
+    }
+
+    /// The lit network's name when it is too long for its row, to scroll.
+    pub fn ticker(&self) -> Option<Ticker> {
+        let WifiSetup::List {
+            networks,
+            cursor,
+            saved,
+        } = self
+        else {
+            return None;
+        };
+        let net = networks.get(*cursor)?;
+        let right = right_text(net, saved);
+        name_ticker(&net.ssid, &right, *cursor)
     }
 
     pub fn draw(face: Option<TexId>, out: &mut Vec<Draw>) {
@@ -190,6 +248,35 @@ impl WifiSetup {
     }
 }
 
+const NAME_X: u32 = EDGE + 14;
+
+// The room a list row leaves its name beside the text on its right.
+fn name_room(right_w: u32) -> u32 {
+    OUT_W - 2 * EDGE - 28 - right_w - 16
+}
+
+/// A list row's name that is too long for it, as a ticker over the lit row.
+/// `index` is the row's place in the whole list.
+pub(crate) fn name_ticker(name: &str, right: &str, index: usize) -> Option<Ticker> {
+    let font = text::label_font()?;
+    let right_w = text::line_width(font, right, BODY_PX, 0.0).ceil() as u32 + 2;
+    let room = name_room(right_w) - 2;
+    if !overflows(name, BODY_PX, 0.0, room as f32) {
+        return None;
+    }
+    let first = index.saturating_sub(ROWS_SHOWN - 1);
+    Some(Ticker {
+        text: name.to_string(),
+        px: BODY_PX,
+        tracking: 0.0,
+        ink: LIT_INK,
+        x: NAME_X as f32,
+        y: (ROW_Y + (index - first) as u32 * (ROW_H + ROW_GAP)) as f32,
+        room,
+        h: ROW_H,
+    })
+}
+
 fn done(ssid: &str, typed: &str) -> SetupOutcome {
     if typed.chars().count() < PSK_MIN {
         return SetupOutcome::Stay;
@@ -207,6 +294,14 @@ pub(crate) fn bars(signal: i32) -> &'static str {
         s if s >= -78 => "||",
         _ => "|",
     }
+}
+
+fn right_text(net: &WifiNetwork, saved: &[String]) -> String {
+    let kind = match saved.contains(&net.ssid) {
+        true => "Saved",
+        false => lock(net.secured),
+    };
+    format!("{} {kind}", bars(net.signal))
 }
 
 fn lock(secured: bool) -> &'static str {
@@ -285,6 +380,18 @@ impl Canvas {
         };
         text::draw_centred(&mut buf, w, h, &layout, colour);
         (buf, w)
+    }
+
+    /// A list row's name, cut with an ellipsis when it is too long. The lit
+    /// row leaves a long name out, for its ticker to scroll there.
+    pub(crate) fn list_name(&mut self, name: &str, right_w: u32, y: u32, lit: bool, ink: [u8; 3]) {
+        let room = name_room(right_w) - 2;
+        if !overflows(name, BODY_PX, 0.0, room as f32) {
+            self.text_left(name, NAME_X, y, room + 2, ROW_H, ink);
+        } else if !lit {
+            let cut = ellipsize(name, BODY_PX, 0.0, room as f32);
+            self.text_left(&cut, NAME_X, y, room + 2, ROW_H, ink);
+        }
     }
 
     pub(crate) fn text_centred(&mut self, s: &str, y: u32, h: u32, px: f32, colour: [u8; 3]) {

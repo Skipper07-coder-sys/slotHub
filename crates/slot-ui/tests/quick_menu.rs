@@ -106,7 +106,8 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "Rewind",
             "Turbo Buttons",
             "Rumble",
-            "Auto Save on Eject"
+            "Auto Save on Eject",
+            "RetroAchievements"
         ]
     );
     assert_eq!(
@@ -124,7 +125,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             QuickRow::Bluetooth,
             QuickRow::BtHeadphones,
             QuickRow::Wifi,
-            QuickRow::WifiChoose,
+            QuickRow::WifiNetwork,
             QuickRow::Update,
             QuickRow::SlotUpdate,
             QuickRow::BaseOsUpdate,
@@ -134,16 +135,12 @@ fn the_rows_run_in_the_order_the_user_chose() {
     );
     assert_eq!(
         QuickRow::WIFI.map(QuickRow::label),
-        [
-            "Wi-Fi",
-            "Network",
-            "Choose Network",
-            "Wi-Fi Drive",
-            "Game Artwork",
-            "RetroAchievements"
-        ]
+        ["Wi-Fi", "Network", "Wi-Fi Drive"]
     );
-    assert_eq!(QuickRow::UPDATE.map(QuickRow::label), ["slot", "BaseOS"]);
+    assert_eq!(
+        QuickRow::UPDATE.map(QuickRow::label),
+        ["slot", "BaseOS", "Game Artwork"]
+    );
     for page in [
         &QuickRow::MAIN[..],
         &QuickRow::SCREEN[..],
@@ -256,7 +253,7 @@ fn the_two_carets_point_different_ways() {
 fn pure_trims_the_gameplay_page_and_no_other() {
     assert_eq!(
         QuickRow::GAME_PURE.map(QuickRow::label),
-        ["Rumble", "Auto Save on Eject"]
+        ["Rumble", "Auto Save on Eject", "RetroAchievements"]
     );
     for row in QuickRow::GAME {
         assert_eq!(row.page_in(true), &QuickRow::GAME_PURE[..], "{row:?}");
@@ -288,10 +285,31 @@ fn pure_opens_gameplay_on_a_row_it_keeps_and_never_leaves_them() {
     assert_eq!(QuickRow::Rumble.position_in(true), 0);
     assert_eq!(QuickRow::EjectSave.position_in(true), 1);
     assert_eq!(QuickRow::Rumble.down_in(true), QuickRow::EjectSave);
-    assert_eq!(QuickRow::EjectSave.down_in(true), QuickRow::Rumble);
-    assert_eq!(QuickRow::Rumble.up_in(true), QuickRow::EjectSave);
+    assert_eq!(QuickRow::EjectSave.down_in(true), QuickRow::Cheevos);
+    assert_eq!(QuickRow::Cheevos.down_in(true), QuickRow::Rumble);
+    assert_eq!(QuickRow::Rumble.up_in(true), QuickRow::Cheevos);
     assert_eq!(QuickRow::EjectSave.up_in(true), QuickRow::Rumble);
     for row in QuickRow::GAME_PURE {
         assert_eq!(row.parent(), Some(QuickRow::Game), "{row:?}");
     }
+}
+
+#[test]
+fn a_long_value_on_the_lit_row_scrolls_and_a_short_one_does_not() {
+    assert!(slot_ui::quick_ticker(QuickRow::Wifi, false, "Home").is_none());
+    let long = "The Neighbours Very Long Network Name 5G";
+    let t = slot_ui::quick_ticker(QuickRow::Wifi, false, long).expect("no ticker");
+    assert_eq!(t.text, long.to_uppercase());
+    assert!(t.x > slot_ui::QUICK_EDGE && t.room > 0);
+    assert!(t.x + t.room as f32 <= slot_gfx::OUT_W as f32 - slot_ui::QUICK_EDGE);
+}
+
+#[test]
+fn a_long_value_on_a_dim_row_is_cut_to_fit_beside_its_label() {
+    let long = "The Neighbours Very Long Network Name 5G";
+    let whole = quick_value_face(long, false);
+    let cut = slot_ui::quick_value_face_in(QuickRow::Wifi, long, false);
+    assert!(cut.w < whole.w, "{} {}", cut.w, whole.w);
+    let short = slot_ui::quick_value_face_in(QuickRow::Wifi, "Home", false);
+    assert_eq!(short.w, quick_value_face("Home", false).w);
 }

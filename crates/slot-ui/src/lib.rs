@@ -29,6 +29,7 @@ mod slot_chrome;
 mod status_bar;
 mod sticker;
 pub mod text;
+mod ticker;
 mod toast;
 mod wifi_setup;
 
@@ -73,8 +74,9 @@ pub use plate::{
 pub use polaroids::{photo_face, PhotoFace, Polaroids, DOT, LEGEND, PHOTO_H, PHOTO_W};
 pub use power_menu::{menu_face, PowerChoice, MENU_PAD};
 pub use quick_menu::{
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, LiveFaces, QuickMenu,
-    QuickMenuFaces, QuickRow, QuickValue, QUICK_EDGE, QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
+    quick_caret_face, quick_label_face, quick_legend_faces, quick_ticker, quick_value_face,
+    quick_value_face_in, LiveFaces, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, QUICK_EDGE,
+    QUICK_PITCH, QUICK_SPLIT, QUICK_TOP,
 };
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
 pub use refusal::Refusal;
@@ -98,6 +100,10 @@ pub use status_bar::{rate_face, rate_text, status_icon_face, StatusBar, StatusIc
 pub use sticker::{
     draw_sticker, head_rows, sticker_face, sticker_lines, StickerFields, COPYRIGHT, CREDITS, DC,
     HOME, ORIGIN, STICKER_H, STICKER_W,
+};
+pub use ticker::{
+    ellipsize, ticker_frame, ticker_offset, ticker_strip, Ticker, TICKER_GAP, TICKER_HOLD_MS,
+    TICKER_SPEED,
 };
 pub use toast::{toast_box, toast_face, toast_rect, Toast};
 pub use wifi_setup::{SetupKey, SetupOutcome, WifiNetwork, WifiSetup, PSK_MAX, PSK_MIN};

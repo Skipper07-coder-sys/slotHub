@@ -120,6 +120,16 @@ impl Account {
         !matches!(self.state, CheevosState::Off | CheevosState::Failed)
     }
 
+    /// The account's name while there is one.
+    pub fn username(&self) -> Option<&str> {
+        match &self.state {
+            CheevosState::Saved(name)
+            | CheevosState::SigningIn(name)
+            | CheevosState::SignedIn(name) => Some(name),
+            CheevosState::Off | CheevosState::Failed => None,
+        }
+    }
+
     pub fn text(&self) -> String {
         match &self.state {
             CheevosState::Off => "Off".into(),

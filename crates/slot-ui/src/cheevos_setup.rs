@@ -13,11 +13,27 @@ pub const CHEEVOS_PASSWORD_MAX: usize = 64;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum CheevosSetup {
-    Username { keys: Keyboard },
-    Password { username: String, keys: Keyboard },
-    SigningIn { username: String },
-    SignedIn { username: String },
-    Failed { username: String, message: String },
+    Username {
+        keys: Keyboard,
+    },
+    Password {
+        username: String,
+        keys: Keyboard,
+    },
+    SigningIn {
+        username: String,
+    },
+    SignedIn {
+        username: String,
+    },
+    Failed {
+        username: String,
+        message: String,
+    },
+    /// The account already on the card: only Y signs it out.
+    Account {
+        username: String,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -25,6 +41,7 @@ pub enum CheevosOutcome {
     Stay,
     Back,
     SignIn { username: String, password: String },
+    SignOut,
 }
 
 impl std::fmt::Debug for CheevosOutcome {
@@ -33,6 +50,7 @@ impl std::fmt::Debug for CheevosOutcome {
             CheevosOutcome::Stay => f.write_str("Stay"),
             CheevosOutcome::Back => f.write_str("Back"),
             CheevosOutcome::SignIn { username, .. } => write!(f, "SignIn({username:?})"),
+            CheevosOutcome::SignOut => f.write_str("SignOut"),
         }
     }
 }
@@ -81,6 +99,11 @@ impl CheevosSetup {
                 }
             },
             CheevosSetup::SigningIn { .. } | CheevosSetup::SignedIn { .. } => match key {
+                SetupKey::A | SetupKey::B | SetupKey::Start => CheevosOutcome::Back,
+                _ => CheevosOutcome::Stay,
+            },
+            CheevosSetup::Account { .. } => match key {
+                SetupKey::Y => CheevosOutcome::SignOut,
                 SetupKey::A | SetupKey::B | SetupKey::Start => CheevosOutcome::Back,
                 _ => CheevosOutcome::Stay,
             },
@@ -134,6 +157,13 @@ impl CheevosSetup {
                 canvas.text_centred(&line, 180, 48, BODY_PX, INK);
                 canvas.text_centred("GBA games now unlock achievements", 230, 48, BODY_PX, DIM);
                 canvas.hints(&[("A", "Done")]);
+            }
+            CheevosSetup::Account { username } => {
+                canvas.text_centred("RetroAchievements", TITLE_Y, TITLE_H, TITLE_PX, INK);
+                let line = format!("Signed in as {username}");
+                canvas.text_centred(&line, 180, 48, BODY_PX, INK);
+                canvas.text_centred("You stay signed in after a restart", 230, 48, BODY_PX, DIM);
+                canvas.hints(&[("B", "Back"), ("Y", "Sign Out")]);
             }
             CheevosSetup::Failed { message, .. } => {
                 canvas.text_centred("RetroAchievements", TITLE_Y, TITLE_H, TITLE_PX, INK);

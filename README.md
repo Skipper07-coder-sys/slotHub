@@ -135,8 +135,9 @@ the root of the card.
 # Wi-Fi
 
 slot can join your home Wi-Fi so you can reach the card over the network. Open the quick menu,
-go to **Wi-Fi** and pick **Choose Network**. slot lists the networks in range, strongest first.
-Pick yours, type its password on the on-screen keyboard and press **Start** (or **Join**):
+go to **Wi-Fi** and press **A** on **Network**. slot lists the networks in range, strongest first,
+and marks the ones it already has a password for as **Saved**; those join straight away, and **Y**
+types a new password for one. Pick yours, type its password on the on-screen keyboard and press **Start** (or **Join**):
 
 | Button | On the keyboard |
 |--------|-----------------|
@@ -160,18 +161,18 @@ psk=another password
 ```
 
 Leave the `psk` line out for an open network. **Wi-Fi** switches it on or off, and the **Network**
-row shows how joining went:
+row shows the network's name once joined, or how joining went:
 
 | Network shows | What it means |
 |---------------|---------------|
 | Joining...    | Looking for a listed network and getting an address |
-| Connected     | Online. The handheld answers at `<hostname>.local`, eg `rg34xxsp.local` |
+| Its name      | Online. The handheld answers at `<hostname>.local`, eg `rg34xxsp.local` |
 | None Saved    | No network has been saved yet, or none has a 8 to 63 character password |
 | Not Found     | None of the listed networks is in range, or the password is wrong |
 | No Address    | Joined, but the router gave no address |
 | Failed        | The radio did not start. Details are in `slot-wifi.log` |
 
-Press **A** on **Network** to try again. Wi-Fi stays on across restarts until you switch it off.
+To try again, pick the network from the list or switch Wi-Fi off and on. Wi-Fi stays on across restarts until you switch it off.
 Link play takes over the radio while a link is up and hands it back afterwards.
 
 Once connected, BaseOS's SSH server lets you copy games, labels and saves with any SFTP app

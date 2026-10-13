@@ -57,7 +57,7 @@ fn booted(wifi: WifiState) -> (TempDir, App, FakeArt) {
     a.set_art_jobs(Box::new(art.clone()));
     a.set_wifi_jobs(Box::new(FixedWifi(wifi)));
     a.apply(Action::QuickMenu);
-    for _ in 0..QuickRow::Wifi.position() {
+    for _ in 0..QuickRow::WifiArt.parent().unwrap().position() {
         press(&mut a, Btn::Down);
     }
     press(&mut a, Btn::A);

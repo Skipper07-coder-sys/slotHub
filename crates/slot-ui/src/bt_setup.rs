@@ -1,9 +1,10 @@
 use slot_gfx::{Draw, TexId, OUT_W};
 
 use crate::plate::UndoFace;
+use crate::ticker::Ticker;
 use crate::wifi_setup::{
-    bars, Canvas, SetupKey, WifiSetup, BODY_PX, DIM, EDGE, INK, LIT, LIT_INK, PAPER, ROWS_SHOWN,
-    ROW_GAP, ROW_H, ROW_Y, TITLE_H, TITLE_PX, TITLE_Y,
+    bars, name_ticker, Canvas, SetupKey, WifiSetup, BODY_PX, DIM, EDGE, INK, LIT, LIT_INK, PAPER,
+    ROWS_SHOWN, ROW_GAP, ROW_H, ROW_Y, TITLE_H, TITLE_PX, TITLE_Y,
 };
 
 const TITLE: &str = "Bluetooth Headphones";
@@ -88,6 +89,15 @@ impl BtSetup {
         }
     }
 
+    /// The lit headphones' name when it is too long for its row, to scroll.
+    pub fn ticker(&self) -> Option<Ticker> {
+        let BtSetup::List { devices, cursor } = self else {
+            return None;
+        };
+        let d = devices.get(*cursor)?;
+        name_ticker(&shown_name(d), &right_text(d), *cursor)
+    }
+
     pub fn face(&self) -> UndoFace {
         let mut canvas = Canvas::new();
         canvas.text_centred(TITLE, TITLE_Y, TITLE_H, TITLE_PX, INK);
@@ -106,18 +116,9 @@ impl BtSetup {
                     let lit = i == *cursor;
                     let (bg, ink) = if lit { (LIT, LIT_INK) } else { (PAPER, INK) };
                     canvas.fill(EDGE, y, OUT_W - 2 * EDGE, ROW_H, bg);
-                    let heard = if d.signal > UNHEARD {
-                        bars(d.signal)
-                    } else {
-                        ""
-                    };
-                    let right = match d.paired {
-                        true => format!("{heard} Paired").trim().to_string(),
-                        false => heard.to_string(),
-                    };
+                    let right = right_text(d);
                     let rw = canvas.text_right(&right, OUT_W - EDGE - 14, y, ROW_H, BODY_PX, ink);
-                    let room = OUT_W - 2 * EDGE - 28 - rw - 16;
-                    canvas.text_left(&shown_name(d), EDGE + 14, y, room, ROW_H, ink);
+                    canvas.list_name(&shown_name(d), rw, y, lit, ink);
                 }
                 canvas.hints(&[("B", "Back"), ("X", "Search Again"), ("A", "Connect")]);
             }
@@ -151,6 +152,18 @@ impl BtSetup {
 
     pub fn draw(face: Option<TexId>, out: &mut Vec<Draw>) {
         WifiSetup::draw(face, out);
+    }
+}
+
+fn right_text(d: &BtFound) -> String {
+    let heard = if d.signal > UNHEARD {
+        bars(d.signal)
+    } else {
+        ""
+    };
+    match d.paired {
+        true => format!("{heard} Paired").trim().to_string(),
+        false => heard.to_string(),
     }
 }
 
