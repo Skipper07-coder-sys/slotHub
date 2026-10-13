@@ -123,6 +123,26 @@ t1=$(date +%s)
 [ $((t1 - t0)) -le 4 ] || fail "a 2 s join took $((t1 - t0)) s with a slow wpa_cli"
 
 reset yes
+make_fake home-wifi "$TMP/home.log" '[ "$1" = status ] && echo 192.168.1.24'
+: > "$TMP/run/slot-wifi.on"
+out="$(run absent link lan)" && rc=0 || rc=$?
+[ "$rc" = 0 ] || fail "lan with home Wi-Fi up exited $rc"
+[ "$out" = "0 192.168.1.24" ] || fail "lan said '$out', want '0 192.168.1.24'"
+[ -e "$TMP/sup.log" ] && fail "lan started a supplicant"
+grep -qx pause "$TMP/home.log" && fail "lan paused home Wi-Fi"
+
+reset yes
+make_fake home-wifi "$TMP/home.log" '[ "$1" = status ] && echo 192.168.1.24'
+out="$(run absent link lan)" && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "lan with home Wi-Fi off exited $rc, want 1"
+[ -z "$out" ] || fail "lan with home Wi-Fi off said '$out'"
+
+reset yes
+: > "$TMP/run/slot-wifi.on"
+out="$(run absent link lan)" && rc=0 || rc=$?
+[ "$rc" = 1 ] || fail "lan with no address exited $rc, want 1"
+
+reset yes
 run absent link sideways 2>/dev/null && rc=0 || rc=$?
 [ "$rc" = 2 ] || fail "bad verb exited $rc, want 2"
 

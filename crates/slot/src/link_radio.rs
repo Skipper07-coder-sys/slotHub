@@ -24,6 +24,17 @@ impl LinkRole {
     }
 }
 
+/// Which network the link runs over, decided when the link starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkNet {
+    /// The private network: a soft-AP the host brings up and the joiner associates to, at fixed
+    /// addresses. What a device with no home Wi-Fi connection gets.
+    Direct,
+    /// The home network the device is already on, at `local`. No radio to bring up: the other
+    /// handheld is found by name over mDNS rather than by address.
+    Lan { local: std::net::Ipv4Addr },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RadioFail {
     NoHost,
@@ -108,8 +119,36 @@ fn run(sub: &str) -> bool {
     link(sub).status().is_ok_and(|status| status.success())
 }
 
+/// The home network's address, if home Wi-Fi is on and has one. `link lan` answers at once
+/// and starts nothing, so this is the whole cost of asking.
 #[cfg(feature = "device")]
-pub fn up(role: LinkRole, cancel: &Cancel) -> Result<(), RadioFail> {
+fn home_address() -> Option<std::net::Ipv4Addr> {
+    let out = link("lan")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_lan_reply(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// `0 192.168.1.24`, the script's answer to `link lan`.
+pub fn parse_lan_reply(reply: &str) -> Option<std::net::Ipv4Addr> {
+    let mut words = reply.split_whitespace();
+    (words.next()? == "0").then_some(())?;
+    words.next()?.parse().ok()
+}
+
+/// A device already on the home network links over it and this returns at once: there is no
+/// radio to bring up, and home Wi-Fi stays connected. Only a device with no home connection
+/// gets the private network, which pauses home Wi-Fi for the session.
+#[cfg(feature = "device")]
+pub fn up(role: LinkRole, cancel: &Cancel) -> Result<LinkNet, RadioFail> {
+    if let Some(local) = home_address() {
+        return Ok(LinkNet::Lan { local });
+    }
     let mut child = link(role.arg())
         .spawn()
         .map_err(|e| RadioFail::Radio(format!("link {} would not start: {e}", role.arg())))?;
@@ -120,7 +159,7 @@ pub fn up(role: LinkRole, cancel: &Cancel) -> Result<(), RadioFail> {
             return Err(RadioFail::Cancelled);
         }
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
+            Ok(Some(status)) if status.success() => return Ok(LinkNet::Direct),
             Ok(Some(status)) if status.code() == Some(3) => return Err(RadioFail::NoHost),
             Ok(Some(status)) => {
                 return Err(RadioFail::Radio(format!(
@@ -140,8 +179,8 @@ pub fn down() {
 }
 
 #[cfg(not(feature = "device"))]
-pub fn up(_role: LinkRole, _cancel: &Cancel) -> Result<(), RadioFail> {
-    Ok(())
+pub fn up(_role: LinkRole, _cancel: &Cancel) -> Result<LinkNet, RadioFail> {
+    Ok(LinkNet::Direct)
 }
 
 #[cfg(not(feature = "device"))]

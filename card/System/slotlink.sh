@@ -203,6 +203,18 @@ link_down() {
 	return 0
 }
 
+# Home Wi-Fi's address, when it is on and has one: then the two handhelds meet
+# over the home network (found by mDNS) and no private network is brought up.
+# Prints "0 <address>" and exits 0, or exits 1 with nothing to say. Starts
+# nothing and takes no lock, so slot can ask before every link.
+link_lan() {
+	[ -f "$HOME_WIFI" ] || return 1
+	[ -e "$RUN/slot-wifi.on" ] || return 1
+	a="$(sh "$HOME_WIFI" status 2>/dev/null | head -n 1)"
+	[ -n "$a" ] || return 1
+	echo "0 $a"
+}
+
 link_warm() {
 	trace "warm"
 	wifi_up
@@ -214,10 +226,11 @@ case "${1:-} ${2:-}" in
 "link host") link_host ;;
 "link join") link_join ;;
 "link down") link_down ;;
+"link lan") link_lan ;;
 "link warm") link_warm ;;
 "link cool") exit 0 ;;
 *)
-	echo "usage: slotlink.sh link [host|join|down|warm|cool]" >&2
+	echo "usage: slotlink.sh link [host|join|down|lan|warm|cool]" >&2
 	exit 2
 	;;
 esac
