@@ -2491,7 +2491,6 @@ impl App {
             Shader::Retro => Toast::ShaderRetro,
             Shader::Bevel => Toast::ShaderBevel,
             Shader::Crt => Toast::ShaderCrt,
-            Shader::LcdGrid => Toast::ShaderLcdGrid,
             Shader::CurvedCrt => Toast::ShaderCurvedCrt,
             Shader::Lcd3xBright => Toast::ShaderLcd3xBright,
         };
@@ -4620,7 +4619,6 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Retro => QuickValue::Retro,
         Shader::Bevel => QuickValue::Bevel,
         Shader::Crt => QuickValue::Crt,
-        Shader::LcdGrid => QuickValue::LcdGrid,
         Shader::CurvedCrt => QuickValue::CurvedCrt,
         Shader::Lcd3xBright => QuickValue::Lcd3xBright,
     }

@@ -16,10 +16,6 @@ retro-v2 by Hyllian and DOLLS. GNU General Public License version 2 or later.
 
 bevel by Hyllian/Jararaca, copyright (C) 2011-2014. GNU General Public License version 2 or later.
 
-lcd-grid-v2 by cgwg. GNU General Public License version 2 or later.
-Changes: the settings of libretro's lcd-grid-v2.glslp preset (subpixels 0.75, gain 1.5, gamma 2.2,
-black level 0) are built in.
-
 zfast_crt by Greg Hogan (SoltanGris42), copyright (C) 2017.
 GNU General Public License version 2 or later.
 Changes: the game picture is sampled nearest, so the shader blends the four texels itself.

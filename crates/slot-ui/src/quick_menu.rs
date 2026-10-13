@@ -278,7 +278,6 @@ pub enum QuickValue {
     Retro,
     Bevel,
     Crt,
-    LcdGrid,
     CurvedCrt,
     Lcd3xBright,
     Connected,
@@ -296,7 +295,7 @@ pub enum QuickValue {
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 28] = [
+    pub const ALL: [QuickValue; 27] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -310,7 +309,6 @@ impl QuickValue {
         QuickValue::Retro,
         QuickValue::Bevel,
         QuickValue::Crt,
-        QuickValue::LcdGrid,
         QuickValue::CurvedCrt,
         QuickValue::Lcd3xBright,
         QuickValue::Connected,
@@ -346,7 +344,6 @@ impl QuickValue {
             QuickValue::Retro => "Retro",
             QuickValue::Bevel => "Bevel",
             QuickValue::Crt => "CRT",
-            QuickValue::LcdGrid => "LCD Grid",
             QuickValue::CurvedCrt => "Curved CRT",
             QuickValue::Lcd3xBright => "LCD3x 18/12",
             QuickValue::Connected => "Connected",

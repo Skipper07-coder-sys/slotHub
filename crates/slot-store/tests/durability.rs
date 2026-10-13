@@ -252,11 +252,11 @@ fn the_quick_menu_settings_round_trip_as_their_own_lines() {
 }
 
 #[test]
-fn a_card_saved_on_the_dropped_simpletex_shader_falls_back_to_grid() {
+fn a_card_saved_on_a_dropped_shader_falls_back_to_grid() {
     let d = tmp_root();
     std::fs::write(
         d.path().join("Config/slot.state"),
-        "shader_gba=simpletex\nshader_gb=simpletex\n",
+        "shader_gba=lcdgrid\nshader_gb=simpletex\n",
     )
     .unwrap();
     let s = read_slot_state(d.path());
