@@ -1718,9 +1718,6 @@ impl App {
     }
 
     pub fn runahead_in_play(&self) -> u8 {
-        if self.pure {
-            return 0;
-        }
         runahead_for(self.core, self.platform, self.state.runahead)
     }
 

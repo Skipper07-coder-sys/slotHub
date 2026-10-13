@@ -87,10 +87,12 @@ computer and changing the line to `pure = off`, or deleting the file.
 | Save state switcher on a double tap of `MENU`    | Off                                                |
 | Resuming where you left off                      | Once, see below                                    |
 | In-game saves                                    | Unchanged                                          |
+| Run-ahead                                        | Unchanged: it only hides input lag                 |
 | Shaders, palettes, color correction              | Unchanged                                          |
 | Brightness, blue light, volume, rumble, linking  | Unchanged                                          |
 
-The Gameplay page of the settings shrinks to Rumble and Auto Save on Eject.
+The Gameplay page of the settings shrinks to Run-Ahead, Rumble, Auto Save on Eject and
+RetroAchievements.
 
 ## Resuming, once
 

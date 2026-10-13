@@ -269,7 +269,12 @@ fn the_two_carets_point_different_ways() {
 fn pure_trims_the_gameplay_page_and_no_other() {
     assert_eq!(
         QuickRow::GAME_PURE.map(QuickRow::label),
-        ["Rumble", "Auto Save on Eject", "RetroAchievements"]
+        [
+            "Run-Ahead",
+            "Rumble",
+            "Auto Save on Eject",
+            "RetroAchievements"
+        ]
     );
     for row in QuickRow::GAME {
         assert_eq!(row.page_in(true), &QuickRow::GAME_PURE[..], "{row:?}");
@@ -294,16 +299,19 @@ fn pure_trims_the_gameplay_page_and_no_other() {
 #[test]
 fn pure_opens_gameplay_on_a_row_it_keeps_and_never_leaves_them() {
     assert_eq!(QuickRow::Game.child_in(false), Some(QuickRow::FastForward));
-    assert_eq!(QuickRow::Game.child_in(true), Some(QuickRow::Rumble));
+    assert_eq!(QuickRow::Game.child_in(true), Some(QuickRow::RunAhead));
     assert_eq!(QuickRow::Screen.child_in(true), QuickRow::Screen.child());
     assert_eq!(QuickRow::About.child_in(true), None);
 
-    assert_eq!(QuickRow::Rumble.position_in(true), 0);
-    assert_eq!(QuickRow::EjectSave.position_in(true), 1);
+    assert_eq!(QuickRow::RunAhead.position_in(true), 0);
+    assert_eq!(QuickRow::Rumble.position_in(true), 1);
+    assert_eq!(QuickRow::EjectSave.position_in(true), 2);
+    assert_eq!(QuickRow::RunAhead.down_in(true), QuickRow::Rumble);
     assert_eq!(QuickRow::Rumble.down_in(true), QuickRow::EjectSave);
     assert_eq!(QuickRow::EjectSave.down_in(true), QuickRow::Cheevos);
-    assert_eq!(QuickRow::Cheevos.down_in(true), QuickRow::Rumble);
-    assert_eq!(QuickRow::Rumble.up_in(true), QuickRow::Cheevos);
+    assert_eq!(QuickRow::Cheevos.down_in(true), QuickRow::RunAhead);
+    assert_eq!(QuickRow::RunAhead.up_in(true), QuickRow::Cheevos);
+    assert_eq!(QuickRow::Rumble.up_in(true), QuickRow::RunAhead);
     assert_eq!(QuickRow::EjectSave.up_in(true), QuickRow::Rumble);
     for row in QuickRow::GAME_PURE {
         assert_eq!(row.parent(), Some(QuickRow::Game), "{row:?}");
