@@ -36,7 +36,7 @@ fn render_status_bar() {
     let mut live = [None; QuickRow::ALL.len()];
     for (row, text) in [
         (QuickRow::Wifi, "Home Net"),
-        (QuickRow::Bluetooth, "Le Battonetes 2"),
+        (QuickRow::Bluetooth, "My Headphones"),
     ] {
         live[row.index()] = Some([false, true].map(|lit| add(quick_value_face(text, lit))));
     }

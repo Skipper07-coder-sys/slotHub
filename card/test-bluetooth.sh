@@ -35,7 +35,7 @@ fi
 case "\$1" in
 	"") cat >> "$TMP/btctl.log"; found ;;
 	--timeout) found ;;
-	show) echo "Controller 68:8F:C9:35:51:EB slot [default]"; echo "	Powered: yes" ;;
+	show) echo "Controller AA:BB:CC:00:00:01 slot [default]"; echo "	Powered: yes" ;;
 	devices|paired-devices)
 		for d in "$TMP"/bt/*; do
 			[ -d "\$d" ] || continue
@@ -243,13 +243,13 @@ grep -q "^--- debug" "$TMP/bt.log" || fail "a failed connect did not dump the de
 
 # On reconnects the remembered headphones even when BlueZ lists nothing as paired.
 reset
-device AA:AA:AA:AA:AA:03 "Alias: Le battonetes 2 - Find My" "$SINK" "Paired: yes"
-printf 'mac=AA:AA:AA:AA:AA:03\nname=Le battonetes 2\n' > "$TMP/bluetooth.conf"
+device AA:AA:AA:AA:AA:03 "Alias: My headphones - Find My" "$SINK" "Paired: yes"
+printf 'mac=AA:AA:AA:AA:AA:03\nname=My headphones\n' > "$TMP/bluetooth.conf"
 FAKE_NEW_BLUEZ=1 quiet on && rc=0 || rc=$?
 [ "$rc" = 0 ] || fail "on with remembered headphones exited $rc"
 grep -q "^connect AA:AA:AA:AA:AA:03" "$TMP/btctl.log" || fail "on did not reconnect the remembered headphones"
 out="$(run status 2>/dev/null)" || true
-[ "$out" = "AA:AA:AA:AA:AA:03 Le battonetes 2" ] || fail "status printed '$out'"
+[ "$out" = "AA:AA:AA:AA:AA:03 My headphones" ] || fail "status printed '$out'"
 grep -q "status: AA:AA:AA:AA:AA:03" "$TMP/bt.log" || fail "status did not log what it found"
 
 # Status follows the A2DP transport alone; a mere link is not Connected.
