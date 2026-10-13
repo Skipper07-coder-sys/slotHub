@@ -2137,32 +2137,66 @@ fn slot_text_alpha(a: &App, tex: slot_ui::TexId) -> f32 {
 }
 
 #[test]
-fn a_letter_jump_shows_the_letter_in_the_slot_and_fades_like_the_shelf_name() {
-    let mut a = app_with_carts(&["Alpha", "Bravo"]);
-    let face = slot_ui::TexId::from_raw(77);
+fn fast_scrolling_keeps_the_letters_up() {
+    let names: Vec<String> = (0..40)
+        .map(|i| format!("{} Game", (b'A' + i % 26) as char))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    let mut a = app_with_carts(&names);
+    let title = slot_ui::TexId::from_raw(72);
+    a.update(1.0 / 60.0);
+    a.set_shelf_title_face(title, slot_ui::TITLE_WIN_W, slot_ui::INDEX_HOLD_MS);
+    a.apply(Action::GbaDown(Btn::Right));
+    let mut lowest = f32::MAX;
+    for frame in 0..180 {
+        a.update(1.0 / 60.0);
+        if frame > 30 {
+            lowest = lowest.min(a.shelf_index_alpha());
+        }
+    }
+    assert!(
+        lowest > 0.99,
+        "holding Right dimmed the letters to {lowest}"
+    );
+}
+
+#[test]
+fn moving_the_shelf_shows_the_letters_and_the_name_then_both_fade() {
+    let mut a = app_with_carts(&["Alpha", "Bravo (USA)"]);
+    let (rail_a, rail_b) = (slot_ui::TexId::from_raw(70), slot_ui::TexId::from_raw(71));
+    let title = slot_ui::TexId::from_raw(72);
+    a.update(1.0 / 60.0);
+    assert_eq!(a.rail_letters(), &['A', 'B']);
+    a.set_rail_face('A', rail_a, 20, 30);
+    a.set_rail_face('B', rail_b, 20, 30);
+    a.set_shelf_title_face(title, slot_ui::TITLE_WIN_W, slot_ui::INDEX_HOLD_MS);
+    a.update(0.5);
     assert_eq!(
-        a.slot_text(),
-        None,
-        "a one shelf card printed something in the slot"
+        slot_text_alpha(&a, title),
+        0.0,
+        "a shelf nobody had touched showed a name"
     );
 
     a.apply(Action::GbaDown(Btn::Down));
-    assert_eq!(a.slot_text().as_deref(), Some("B"));
-    a.set_shelf_platform_face(face, 20);
     a.update(1.0 / 60.0);
-    a.update(0.5);
-    assert!(slot_text_alpha(&a, face) > 0.0, "the letter never showed");
+    a.update(0.3);
+    assert_eq!(a.shelf_title().as_deref(), Some("Bravo"));
+    assert!(slot_text_alpha(&a, title) > 0.0, "the name never showed");
+    assert!(
+        slot_text_alpha(&a, rail_b) > slot_text_alpha(&a, rail_a),
+        "the letter jumped to is not the one in the middle of the rail"
+    );
+
     a.update(5.0);
-    assert_eq!(slot_text_alpha(&a, face), 0.0, "the letter never faded");
+    assert_eq!(slot_text_alpha(&a, title), 0.0, "the name never faded");
+    assert_eq!(slot_text_alpha(&a, rail_b), 0.0, "the letters never faded");
 
     a.apply(Action::GbaDown(Btn::Left));
-    a.apply(Action::GbaDown(Btn::Down));
-    assert_eq!(a.slot_text().as_deref(), Some("B"));
     a.update(1.0 / 60.0);
-    a.update(0.5);
+    a.update(0.3);
     assert!(
-        slot_text_alpha(&a, face) > 0.0,
-        "jumping to the letter already printed did not show it again"
+        slot_text_alpha(&a, title) > 0.0,
+        "stepping a cart did not bring the name back"
     );
 }
 
@@ -2180,8 +2214,8 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
         ),
         (
             slot_input::Action::ShaderNext,
-            Shader::Off,
-            slot_ui::Toast::ShaderOff,
+            Shader::Lcd1x,
+            slot_ui::Toast::ShaderLcd1x,
         ),
         (
             slot_input::Action::ShaderPrev,
@@ -2197,6 +2231,16 @@ fn the_shader_shortcut_steps_the_seated_carts_shader_both_ways_and_names_it() {
             slot_input::Action::ShaderPrev,
             Shader::Lcd3x,
             slot_ui::Toast::ShaderLcd3x,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
+            Shader::Off,
+            slot_ui::Toast::ShaderOff,
+        ),
+        (
+            slot_input::Action::ShaderPrev,
+            Shader::Simpletex,
+            slot_ui::Toast::ShaderSimpletex,
         ),
     ] {
         s.app_mut().apply(action);

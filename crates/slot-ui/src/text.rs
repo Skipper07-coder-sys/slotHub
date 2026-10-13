@@ -201,7 +201,7 @@ fn stamp(dst: &mut [u8], dst_w: u32, dst_h: u32, x: i32, y: i32, cov: &[u8], gw:
     }
 }
 
-fn blend(px: &mut [u8], a: u32, colour: [u8; 3]) {
+pub(crate) fn blend(px: &mut [u8], a: u32, colour: [u8; 3]) {
     let under = px[3] as u32 * (255 - a) / 255;
     let out = a + under;
     for c in 0..3 {
