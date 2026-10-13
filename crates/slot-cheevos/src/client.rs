@@ -9,6 +9,9 @@ use crate::ffi::*;
 use crate::net::{self, Wiped};
 use crate::{Cheevos, Event, Region, Secret};
 
+/// Achievements from this id up are the server's notices, not real ones.
+const WARNING_ID: u32 = 101_000_001;
+
 /// Events beyond this many, not yet taken by the app, are dropped.
 const EVENTS_MAX: usize = 64;
 
@@ -163,6 +166,14 @@ unsafe extern "C" fn event_handler(event: *const rc_client_event_t, _client: *mu
         RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED => {
             if let Some(a) = event.achievement.as_ref() {
                 let title = text(a.title);
+                if a.id >= WARNING_ID {
+                    eprintln!("slot: cheevos: server notice \"{title}\"");
+                    push(Event::Warning {
+                        title,
+                        description: text(a.description),
+                    });
+                    return;
+                }
                 eprintln!("slot: cheevos: {}", unlock_line(&title, a.points));
                 push(Event::Unlocked {
                     title,

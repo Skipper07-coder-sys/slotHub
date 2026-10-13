@@ -45,6 +45,15 @@ impl Cheevo {
         }
     }
 
+    /// The server's word that this ROM is not one its achievements fit.
+    pub fn unsupported() -> Cheevo {
+        Cheevo {
+            heading: "RetroAchievements".into(),
+            title: "Unsupported Game File".into(),
+            detail: "No achievements for this version of the game".into(),
+        }
+    }
+
     pub fn completed(game: &str) -> Cheevo {
         Cheevo {
             heading: "Game Mastered".into(),

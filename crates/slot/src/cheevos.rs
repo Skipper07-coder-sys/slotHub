@@ -223,12 +223,23 @@ impl Account {
                 Event::Completed { title } => {
                     notices.push(Notice::Popup(Cheevo::completed(&title)))
                 }
+                // Softcore unlocks still count from a client the server does
+                // not know, so "Unknown Emulator" is only logged.
+                Event::Warning { title, .. } if unsupported(&title) => {
+                    notices.push(Notice::Popup(Cheevo::unsupported()))
+                }
+                Event::Warning { .. } => {}
                 Event::GameLoaded { .. } | Event::GameFailed { .. } | Event::ServerError { .. } => {
                 }
             }
         }
         notices
     }
+}
+
+/// Whether a server notice says the ROM is the wrong version for the set.
+fn unsupported(title: &str) -> bool {
+    title.to_ascii_lowercase().contains("unsupported")
 }
 
 #[cfg(test)]
@@ -392,5 +403,21 @@ mod tests {
                 Notice::Popup(Cheevo::completed("Game")),
             ]
         );
+    }
+
+    #[test]
+    fn server_notices_are_not_unlocks() {
+        let (_d, fake, mut a) = account();
+        fake.events.lock().unwrap().extend([
+            Event::Warning {
+                title: "Warning: Unknown Emulator".into(),
+                description: "Hardcore unlocks cannot be earned using this emulator.".into(),
+            },
+            Event::Warning {
+                title: "Unsupported Game Version".into(),
+                description: "This version of the game is known to not work.".into(),
+            },
+        ]);
+        assert_eq!(a.poll(0), [Notice::Popup(Cheevo::unsupported())]);
     }
 }

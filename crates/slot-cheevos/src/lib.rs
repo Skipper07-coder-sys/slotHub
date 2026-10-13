@@ -75,6 +75,12 @@ pub enum Event {
     Completed {
         title: String,
     },
+    /// A notice the server sends as a fake achievement that unlocks at once,
+    /// such as "Unsupported Game Version" or "Warning: Unknown Emulator".
+    Warning {
+        title: String,
+        description: String,
+    },
     ServerError {
         message: String,
     },
