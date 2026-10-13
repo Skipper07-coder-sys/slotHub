@@ -174,8 +174,8 @@ mod tests {
     fn found() -> Vec<BtFound> {
         vec![
             BtFound {
-                mac: "30:7A:D2:85:D8:1D".into(),
-                name: "Le Battonetes 2".into(),
+                mac: "AA:BB:CC:00:11:22".into(),
+                name: "My Headphones".into(),
                 paired: true,
                 signal: -40,
             },
@@ -203,8 +203,8 @@ mod tests {
         assert_eq!(
             s.press(SetupKey::A),
             BtOutcome::Connect {
-                mac: "30:7A:D2:85:D8:1D".into(),
-                name: "Le Battonetes 2".into()
+                mac: "AA:BB:CC:00:11:22".into(),
+                name: "My Headphones".into()
             }
         );
         assert_eq!(s.press(SetupKey::X), BtOutcome::Rescan);
@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(s.press(SetupKey::Up), BtOutcome::Stay);
         assert_eq!(s.press(SetupKey::A), BtOutcome::Rescan);
         let mut s = BtSetup::Refused {
-            name: "Le Battonetes 2".into(),
+            name: "My Headphones".into(),
         };
         assert_eq!(s.press(SetupKey::Down), BtOutcome::Stay);
         assert_eq!(s.press(SetupKey::A), BtOutcome::Rescan);

@@ -47,7 +47,7 @@ impl BtJobs for Fake {
     }
 }
 
-const AIRPODS: &str = "30:7A:D2:85:D8:1D";
+const AIRPODS: &str = "AA:BB:CC:00:11:22";
 
 fn nearby() -> Vec<BtFound> {
     vec![
@@ -59,7 +59,7 @@ fn nearby() -> Vec<BtFound> {
         },
         BtFound {
             mac: AIRPODS.into(),
-            name: "Le Battonetes 2".into(),
+            name: "My Headphones".into(),
             paired: true,
             signal: -60,
         },
@@ -140,7 +140,7 @@ fn choosing_headphones_lists_what_the_scan_found_and_a_connects_the_picked_pair(
     assert_eq!(
         a.bt_setup(),
         Some(&BtSetup::Connecting {
-            name: "Le Battonetes 2".into()
+            name: "My Headphones".into()
         })
     );
     assert_eq!(
@@ -214,14 +214,14 @@ fn connected_headphones_take_the_sound_and_show_their_name() {
     *fake.state.lock().unwrap() = Some(BtState::Ready);
     *fake.device.lock().unwrap() = Some(BtDevice {
         mac: AIRPODS.into(),
-        name: "Le battonetes 2".into(),
+        name: "My headphones".into(),
     });
     a.tick_ms(a.now() + 1_000);
     assert_eq!(
         a.quick_value(QuickRow::BtHeadphones),
         Some(QuickValue::Connected)
     );
-    assert_eq!(a.bt_device_name().as_deref(), Some("Le battonetes 2"));
+    assert_eq!(a.bt_device_name().as_deref(), Some("My headphones"));
     press(&mut a, Btn::Down);
     press(&mut a, Btn::A);
     assert_eq!(

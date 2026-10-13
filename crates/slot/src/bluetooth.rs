@@ -364,7 +364,7 @@ mod tests {
     #[test]
     fn a_job_runs_the_cards_script_through_sh() {
         let d = tempfile::tempdir().unwrap();
-        let job = BtJob::Connect("30:7A:D2:85:D8:1D".into());
+        let job = BtJob::Connect("AA:BB:CC:00:11:22".into());
         let cmd = bt_command(d.path(), &job.args());
         let argv: Vec<String> = std::iter::once(cmd.get_program())
             .chain(cmd.get_args())
@@ -377,14 +377,14 @@ mod tests {
                 "/bin/sh",
                 script.to_str().unwrap(),
                 "connect",
-                "30:7A:D2:85:D8:1D"
+                "AA:BB:CC:00:11:22"
             ]
         );
     }
 
     #[test]
     fn the_script_exit_says_how_a_job_went() {
-        let connect = BtJob::Connect("30:7A:D2:85:D8:1D".into());
+        let connect = BtJob::Connect("AA:BB:CC:00:11:22".into());
         assert_eq!(BtState::after(&BtJob::On, Some(0)), BtState::Ready);
         assert_eq!(BtState::after(&BtJob::On, Some(1)), BtState::Failed);
         assert_eq!(BtState::after(&connect, Some(0)), BtState::Ready);
@@ -400,14 +400,14 @@ mod tests {
     #[test]
     fn the_status_line_names_the_headphones() {
         assert_eq!(
-            BtDevice::parse("30:7A:D2:85:D8:1D Le battonetes 2\n"),
+            BtDevice::parse("AA:BB:CC:00:11:22 My headphones\n"),
             Some(BtDevice {
-                mac: "30:7A:D2:85:D8:1D".into(),
-                name: "Le battonetes 2".into()
+                mac: "AA:BB:CC:00:11:22".into(),
+                name: "My headphones".into()
             })
         );
         assert_eq!(
-            BtDevice::parse("30:7A:D2:85:D8:1D").map(|d| d.name),
+            BtDevice::parse("AA:BB:CC:00:11:22").map(|d| d.name),
             Some(String::new())
         );
         assert_eq!(BtDevice::parse(""), None);
@@ -417,14 +417,14 @@ mod tests {
     #[test]
     fn a_scan_line_is_signal_paired_address_and_the_whole_name() {
         let found = parse_scan(
-            "-40\t1\t30:7A:D2:85:D8:1D\tLe Battonetes 2\n-999\t0\tAA:AA:AA:AA:AA:02\t\nnoise\n-50\t0\tnot-an-address\tx\n",
+            "-40\t1\tAA:BB:CC:00:11:22\tMy Headphones\n-999\t0\tAA:AA:AA:AA:AA:02\t\nnoise\n-50\t0\tnot-an-address\tx\n",
         );
         assert_eq!(
             found,
             [
                 BtFound {
-                    mac: "30:7A:D2:85:D8:1D".into(),
-                    name: "Le Battonetes 2".into(),
+                    mac: "AA:BB:CC:00:11:22".into(),
+                    name: "My Headphones".into(),
                     paired: true,
                     signal: -40
                 },
