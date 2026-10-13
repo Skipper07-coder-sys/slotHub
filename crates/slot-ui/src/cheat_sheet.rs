@@ -48,7 +48,7 @@ const PAGES: [(&str, &[Row]); 5] = [
             ("SEL+L2 / R2", "GB palette (if on)", true),
             ("L1 / R1", "GB stretch / 1:1", true),
             ("VOL+ / VOL-", "Volume", true),
-            ("VOL+ and VOL-", "Mute", true),
+            ("SEL+VOL+/-", "Mute", true),
         ],
     ),
     (
