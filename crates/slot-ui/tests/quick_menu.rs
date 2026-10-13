@@ -95,6 +95,7 @@ fn the_rows_run_in_the_order_the_user_chose() {
             "GBA Shader",
             "GB / GBC Shader",
             "Color Correction",
+            "Panel Calibration",
             "GB Palettes"
         ]
     );

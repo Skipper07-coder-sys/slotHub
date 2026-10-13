@@ -215,6 +215,26 @@ fn colour_correction_flips_on_either_arrow_and_saves() {
 }
 
 #[test]
+fn panel_calibration_starts_on_and_flips_on_either_arrow_and_saves() {
+    let (d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::PanelCalibration);
+    assert!(a.panel_calibration(), "the panel table is off by default");
+    for (btn, want) in [(Btn::Left, false), (Btn::Right, true)] {
+        press(&mut a, btn);
+        assert_eq!(a.panel_calibration(), want, "{btn:?}");
+        assert_eq!(
+            read_slot_state(d.path()).panel_calibration,
+            want,
+            "{btn:?} never reached the card"
+        );
+        assert_eq!(
+            a.quick_value(QuickRow::PanelCalibration),
+            Some(QuickValue::flag(want))
+        );
+    }
+}
+
+#[test]
 fn the_game_page_flips_eject_save_turbo_and_rewind_and_saves_each() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::Rewind);
@@ -247,6 +267,7 @@ fn screen_opens_a_page_of_its_own_and_b_comes_back_to_it() {
     for want in [
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::GbPalettes,
         QuickRow::GbaShader,
     ] {

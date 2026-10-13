@@ -1,0 +1,8 @@
+slot's panel calibration (Screen > Panel Calibration) comes from Prashant Vaibhav's
+slot fork, https://github.com/pvaibhav/slot (branch pvaibhav-improvements),
+commits "Apply panel colour correction for RG SP" and "Select panel calibration
+LUT from BaseOS device model". GNU General Public License version 3.
+
+That code is a port of NextUI's display calibration (workspace/all/common/displaycal.c
+and the measured skeleton/SYSTEM/res/displaycal tables for the RG SP and RG34XXSP),
+https://github.com/LoveRetro/NextUI. GNU General Public License version 3.

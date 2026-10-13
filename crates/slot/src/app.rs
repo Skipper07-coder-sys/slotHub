@@ -885,6 +885,7 @@ impl App {
             QuickRow::FastForward => QuickValue::speed(self.state.ff_speed),
             QuickRow::FastForwardSound => Some(QuickValue::flag(self.state.ff_sound)),
             QuickRow::ColourCorrection => Some(QuickValue::flag(self.state.colour_correction)),
+            QuickRow::PanelCalibration => Some(QuickValue::flag(self.state.panel_calibration)),
             QuickRow::GbPalettes => Some(QuickValue::flag(self.state.gb_palettes)),
             QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
             QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
@@ -1782,6 +1783,10 @@ impl App {
         self.link_player
     }
 
+    pub fn panel_calibration(&self) -> bool {
+        self.state.panel_calibration
+    }
+
     pub fn take_colour_correction(&mut self) -> Option<bool> {
         self.colour_pending.take()
     }
@@ -2040,6 +2045,7 @@ impl App {
             | QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::ColourCorrection
+            | QuickRow::PanelCalibration
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
@@ -2418,6 +2424,7 @@ impl App {
                 s.colour_correction = !s.colour_correction;
                 self.colour_pending = Some(s.colour_correction);
             }
+            QuickRow::PanelCalibration => s.panel_calibration = !s.panel_calibration,
             QuickRow::GbaShader => {
                 let to = s.shader_gba.step(&Shader::GBA, right);
                 if to == s.shader_gba {

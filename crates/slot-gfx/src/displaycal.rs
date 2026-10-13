@@ -8,6 +8,7 @@ use std::os::fd::AsRawFd;
 
 const SET_GAMMA_TABLE: c_ulong = 0x10b;
 const ENABLE_GAMMA: c_ulong = 0x10c;
+const DISABLE_GAMMA: c_ulong = 0x10d;
 
 extern "C" {
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
@@ -83,7 +84,9 @@ fn apply_table(
     send(ENABLE_GAMMA, &[0; 4])
 }
 
-pub(crate) fn apply_device() -> io::Result<()> {
+/// Loads the panel's table and turns it on, or turns the hardware table off so
+/// the panel shows its own uncorrected colour. Does nothing on other devices.
+pub(crate) fn set_device(on: bool) -> io::Result<()> {
     let exported = std::env::var("BASEOS_TARGET").ok();
     let release = if exported.is_none() {
         std::fs::read_to_string("/etc/baseos-release").unwrap_or_default()
@@ -97,14 +100,22 @@ pub(crate) fn apply_device() -> io::Result<()> {
         .read(true)
         .write(true)
         .open("/dev/disp")?;
-    apply_table(&table, |request, args| {
+    let send = |request, args: &[c_ulong; 4]| {
         // Both the argument array and table stay alive until the synchronous ioctl returns.
         if unsafe { ioctl(disp.as_raw_fd(), request, args.as_ptr()) } < 0 {
             Err(io::Error::last_os_error())
         } else {
             Ok(())
         }
-    })
+    };
+    match on {
+        true => apply_table(&table, send),
+        false => remove_table(send),
+    }
+}
+
+fn remove_table(mut send: impl FnMut(c_ulong, &[c_ulong; 4]) -> io::Result<()>) -> io::Result<()> {
+    send(DISABLE_GAMMA, &[0; 4])
 }
 
 #[cfg(test)]
@@ -200,6 +211,17 @@ mod tests {
                 (ENABLE_GAMMA, [0; 4]),
             ]
         );
+    }
+
+    #[test]
+    fn turning_off_disables_screen_zero_gamma() {
+        let mut calls = Vec::new();
+        remove_table(|request, args| {
+            calls.push((request, *args));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls, vec![(DISABLE_GAMMA, [0; 4])]);
     }
 
     #[test]
