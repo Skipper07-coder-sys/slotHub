@@ -14,5 +14,5 @@ pub use ffi::{
 pub use libretro::LibretroCore;
 pub use link::{Link, LinkChannel, LoopbackLink};
 pub use mock::MockCore;
-pub use ra::{gba_regions, MapEntry, RaRegion};
+pub use ra::{ra_regions, MapEntry, RaConsole, RaRegion};
 pub use rumble::Rumble;

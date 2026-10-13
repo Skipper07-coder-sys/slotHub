@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use slot_cheevos::{Cheevos, Event, Secret};
+use slot_retro::RaConsole;
+use slot_store::Platform;
 use slot_ui::{Cheevo, Millis};
 
 /// How long after a sign-in that could not reach the server to try again.
@@ -26,6 +28,22 @@ pub fn cheevos_client(release: &str) -> Arc<dyn Cheevos> {
         let _ = release;
         slot_cheevos::no_cheevos()
     }
+}
+
+/// The console rcheevos knows a platform's games as: it picks the hash and
+/// how the core's memory is laid out. Either core will do; gpSP leaves SRAM
+/// out of its maps and the GBA layout reads it from the save RAM instead.
+pub fn ra_console(platform: Platform) -> RaConsole {
+    match platform {
+        Platform::Gba => RaConsole::Gba,
+        Platform::Gb => RaConsole::Gb,
+        Platform::Gbc => RaConsole::Gbc,
+    }
+}
+
+/// Hashes a ROM the way rcheevos hashes this console's games.
+pub fn rom_hash(console: RaConsole, rom: &Path) -> std::io::Result<String> {
+    slot_cheevos::rom_hash(console.rc_id(), rom)
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

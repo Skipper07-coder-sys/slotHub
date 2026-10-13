@@ -141,7 +141,41 @@ pub fn md5_hex(bytes: &[u8]) -> String {
     md5.hex()
 }
 
-/// The hash RetroAchievements knows a GBA ROM by: the MD5 of the whole file.
+/// rcheevos's console ids, from rc_consoles.h.
+pub const RC_CONSOLE_GAMEBOY: u32 = 4;
+pub const RC_CONSOLE_GAMEBOY_ADVANCE: u32 = 5;
+pub const RC_CONSOLE_GAMEBOY_COLOR: u32 = 6;
+
+/// How rcheevos's rc_hash identifies a console's games.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HashMethod {
+    /// The MD5 of the whole ROM file, as rc_hash_buffer takes it.
+    WholeFile,
+}
+
+/// How rc_hash hashes this console's ROMs, where slot knows it: GB, GBC and
+/// GBA all hash the whole file, with no header skipped.
+pub fn hash_method(console_id: u32) -> Option<HashMethod> {
+    match console_id {
+        RC_CONSOLE_GAMEBOY | RC_CONSOLE_GAMEBOY_COLOR | RC_CONSOLE_GAMEBOY_ADVANCE => {
+            Some(HashMethod::WholeFile)
+        }
+        _ => None,
+    }
+}
+
+/// The hash RetroAchievements knows this console's ROM by.
+pub fn rom_hash(console_id: u32, path: &Path) -> std::io::Result<String> {
+    match hash_method(console_id) {
+        Some(HashMethod::WholeFile) => rom_md5(path),
+        None => Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            format!("no RetroAchievements hash for console {console_id}"),
+        )),
+    }
+}
+
+/// The MD5 of a whole ROM file, which is how GB, GBC and GBA ROMs are known.
 pub fn rom_md5(path: &Path) -> std::io::Result<String> {
     let mut file = std::fs::File::open(path)?;
     let mut md5 = Md5::new();
@@ -225,6 +259,32 @@ mod tests {
         let bytes: Vec<u8> = (0..200_000u32).map(|i| (i * 7) as u8).collect();
         std::fs::write(&rom, &bytes).unwrap();
         assert_eq!(rom_md5(&rom).unwrap(), md5_hex(&bytes));
+    }
+
+    #[test]
+    fn game_boy_roms_of_every_kind_hash_whole() {
+        for id in [
+            RC_CONSOLE_GAMEBOY,
+            RC_CONSOLE_GAMEBOY_COLOR,
+            RC_CONSOLE_GAMEBOY_ADVANCE,
+        ] {
+            assert_eq!(hash_method(id), Some(HashMethod::WholeFile), "{id}");
+        }
+        // The SNES skips a copier header, and slot does not do that yet.
+        assert_eq!(hash_method(3), None);
+    }
+
+    #[test]
+    fn a_gb_rom_hashes_to_the_md5_of_its_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let rom = dir.path().join("game.gb");
+        let bytes: Vec<u8> = (0..0x8000u32).map(|i| (i * 13) as u8).collect();
+        std::fs::write(&rom, &bytes).unwrap();
+        for id in [RC_CONSOLE_GAMEBOY, RC_CONSOLE_GAMEBOY_COLOR] {
+            assert_eq!(rom_hash(id, &rom).unwrap(), md5_hex(&bytes));
+        }
+        let err = rom_hash(3, &rom).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
     }
 
     #[test]
