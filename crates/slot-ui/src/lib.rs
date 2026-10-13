@@ -22,6 +22,7 @@ mod quick_menu;
 mod rebuild;
 mod refusal;
 mod shelf;
+mod shelf_index;
 mod shell;
 mod silhouette;
 mod slot_chrome;
@@ -78,6 +79,11 @@ pub use quick_menu::{
 pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
 pub use refusal::Refusal;
 pub use shelf::{foot_y, rest_y, set_shelf_slack, Shelf};
+pub use shelf_index::{
+    draw_slot_title, index_alpha, index_hold, marquee_shift, rail_glyph_face, rail_y,
+    shelf_letters, title_scrolls, title_strip, title_window, LetterRail, INDEX_HOLD_MS,
+    INDEX_IN_MS, INDEX_OUT_MS, MARQUEE_WAIT_MS, RAIL_PX, TITLE_WIN_W,
+};
 pub use shell::{
     gb_table_shells, gba_shell_for, lookup_order_is_exact_then_family_then_default, shell_for,
     shell_presets, table_keys, Finish, Shell, DEFAULT_SHELL, DMG_SHELL, DUAL_MODE_SHELL,

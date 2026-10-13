@@ -359,8 +359,15 @@ pub struct App {
     bolt: Option<TexId>,
     shelf_platform: slot_ui::Printed,
     name_pending: bool,
-    slot_letter: Option<char>,
     shelf_named: Option<Millis>,
+    shelf_moved: Option<Millis>,
+    shelf_shown: Millis,
+    shelf_hold: Millis,
+    shelf_seen: (usize, usize),
+    letters: Vec<char>,
+    rail: slot_ui::LetterRail,
+    rail_faces: HashMap<char, (TexId, u32, u32)>,
+    shelf_title_face: Option<(TexId, u32)>,
     shelf_clock: slot_ui::Printed,
     hud: Hud,
     screen: f32,
@@ -548,8 +555,15 @@ impl App {
             bolt: None,
             shelf_platform: slot_ui::Printed::default(),
             name_pending: false,
-            slot_letter: None,
             shelf_named: None,
+            shelf_moved: None,
+            shelf_shown: 0,
+            shelf_hold: slot_ui::INDEX_HOLD_MS,
+            shelf_seen: (usize::MAX, usize::MAX),
+            letters: Vec::new(),
+            rail: slot_ui::LetterRail::default(),
+            rail_faces: HashMap::new(),
+            shelf_title_face: None,
             shelf_clock: slot_ui::Printed::default(),
             hud: Hud::new(),
             screen: 0.0,
@@ -675,29 +689,104 @@ impl App {
         self.play_held = None;
         self.shelf_at = to;
         self.shelf_platform = slot_ui::Printed::default();
-        self.slot_letter = None;
         self.shelf_named = None;
         self.name_pending = true;
     }
 
     fn jump_letter(&mut self, dir: i32) {
-        let before = self.shelf().index;
         match dir > 0 {
             true => self.shelf_mut().jump_next_letter(),
             false => self.shelf_mut().jump_prev_letter(),
         }
-        if self.shelf().index == before {
-            return;
-        }
-        let Some(letter) = self.selected_stem().map(slot_store::initial) else {
-            return;
+    }
+
+    /// How much of the letter rail and the slot title shows: up while the
+    /// shelf moves, gone a few seconds after it stops, and out of the way of
+    /// the shelf's name when L1 / R1 change shelves.
+    pub fn shelf_index_alpha(&self) -> f32 {
+        let name = self.slot_name_alpha() / SLOT_NAME_ALPHA;
+        self.index_level() * (1.0 - name)
+    }
+
+    fn index_level(&self) -> f32 {
+        let Some(at) = self.shelf_moved else {
+            return 0.0;
         };
-        if self.slot_letter != Some(letter) {
-            self.shelf_platform = slot_ui::Printed::default();
+        let now = self.now();
+        slot_ui::index_alpha(
+            now.saturating_sub(self.shelf_shown),
+            now.saturating_sub(at),
+            self.shelf_hold,
+        )
+    }
+
+    pub fn rail_letters(&self) -> &[char] {
+        &self.letters
+    }
+
+    pub fn set_rail_face(&mut self, letter: char, face: TexId, w: u32, h: u32) {
+        self.rail_faces.insert(letter, (face, w, h));
+    }
+
+    /// The selected cart's name for the slot.
+    pub fn shelf_title(&self) -> Option<String> {
+        let cart = self.shelf().carts.get(self.shelf().index)?;
+        Some(slot_ui::label_text(cart))
+    }
+
+    /// Milliseconds since the slot's name last changed, for the scroll of
+    /// names too long for the slot.
+    pub fn shelf_title_since(&self) -> Millis {
+        self.shelf_moved
+            .map_or(0, |at| self.now().saturating_sub(at))
+    }
+
+    /// The slot's name, and how long the index stays once the shelf stops on
+    /// it: long enough for a scrolling name to go all the way round.
+    pub fn set_shelf_title_face(&mut self, face: TexId, w: u32, hold: Millis) {
+        self.shelf_title_face = Some((face, w));
+        self.shelf_hold = hold;
+    }
+
+    fn watch_shelf(&mut self, dt: f32) {
+        let seen = (self.shelf_at, self.shelf().index);
+        if seen != self.shelf_seen {
+            // The selection the shelf opens on is not a move.
+            if self.shelf_seen.0 != usize::MAX {
+                let now = self.now();
+                let level = self.index_level();
+                // Gone: fade in afresh. Fading out: back up at once. Up or
+                // coming up: carry on, so fast scrolling does not restart it.
+                if level <= 0.0 {
+                    self.shelf_shown = now;
+                } else if now.saturating_sub(self.shelf_shown) >= slot_ui::INDEX_IN_MS {
+                    self.shelf_shown = now - slot_ui::INDEX_IN_MS;
+                }
+                self.shelf_moved = Some(now);
+            }
+            self.shelf_seen = seen;
         }
-        self.slot_letter = Some(letter);
-        self.shelf_named = None;
-        self.name_pending = true;
+        let mut letters = std::mem::take(&mut self.letters);
+        slot_ui::shelf_letters(
+            self.shelf().carts.iter().map(|c| c.stem.as_str()),
+            &mut letters,
+        );
+        let current = self.selected_stem().map(slot_store::initial);
+        self.rail.update(&letters, current, dt);
+        self.letters = letters;
+    }
+
+    fn draw_shelf_index(&self, sink: f32, out: &mut Vec<Draw>) {
+        let alpha = self.shelf_index_alpha();
+        if alpha <= 0.0 {
+            return;
+        }
+        let gone = 1.0 - ease((sink * 2.5).clamp(0.0, 1.0));
+        self.rail
+            .draw(alpha * gone, |c| self.rail_faces.get(&c).copied(), out);
+        if let Some(face) = self.shelf_title_face {
+            slot_ui::draw_slot_title(face, alpha, sink, out);
+        }
     }
 
     fn slot_name_alpha(&self) -> f32 {
@@ -1082,7 +1171,6 @@ impl App {
             .or_else(|| self.shelves.iter().position(|(_, s)| !s.carts.is_empty()))
             .unwrap_or(0);
         self.shelf_platform = slot_ui::Printed::default();
-        self.slot_letter = None;
         self.shelf_named = None;
         self.name_pending = true;
     }
@@ -1295,10 +1383,7 @@ impl App {
     }
 
     pub fn slot_text(&self) -> Option<String> {
-        match self.slot_letter {
-            Some(letter) => Some(letter.to_string()),
-            None => self.shelf_platform_name().map(str::to_string),
-        }
+        self.shelf_platform_name().map(str::to_string)
     }
 
     pub fn shelf_platform_name(&self) -> Option<&'static str> {
@@ -2582,6 +2667,7 @@ impl App {
                 let shelf = &mut self.shelves[at].1;
                 shelf.tick(now);
                 shelf.update(dt);
+                self.watch_shelf(dt);
                 None
             }
             Phase::Inserting {
@@ -2994,6 +3080,7 @@ impl App {
                     _ => {
                         self.shelf().draw(self.shelf_shake(), out);
                         draw_slot_name(self.shelf_platform, self.slot_name_alpha(), out);
+                        self.draw_shelf_index(0.0, out);
                     }
                 }
                 draw_footer(
@@ -3030,6 +3117,9 @@ impl App {
                         .draw_row(Some(cart), 0.0, self.seat(), 1.0, out);
                 }
                 self.chrome(cart, self.seat(), out);
+                if !resumed {
+                    self.draw_shelf_index(self.seat(), out);
+                }
             }
             Phase::Ejecting { cart, .. } => {
                 draw_backdrop(self.wallpaper, out);
