@@ -415,10 +415,10 @@ fn a_cable_session_with_run_ahead_on_steps_both_consoles_and_neither_rolls_back(
 }
 
 #[test]
-fn run_ahead_reaches_the_core_only_for_gba_games_on_mgba() {
+fn run_ahead_reaches_the_core_only_for_gba_games() {
     for (platform, core, want) in [
         (Platform::Gba, Core::Mgba, 1),
-        (Platform::Gba, Core::Gpsp, 0),
+        (Platform::Gba, Core::Gpsp, 1),
         (Platform::Gb, Core::Mgba, 0),
     ] {
         let d = match platform {

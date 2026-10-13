@@ -4970,9 +4970,11 @@ fn shader_value(shader: Shader) -> QuickValue {
     }
 }
 
+/// Run-ahead in play: GBA games on either core. gpSP saves and loads in
+/// under a millisecond on the H700, so its run-ahead costs ~3 ms a frame.
 pub fn runahead_for(core: Core, platform: Platform, frames: u8) -> u8 {
     match (core, platform) {
-        (Core::Mgba, Platform::Gba) => frames,
+        (Core::Mgba | Core::Gpsp, Platform::Gba) => frames,
         _ => 0,
     }
 }
