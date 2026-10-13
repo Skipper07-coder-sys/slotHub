@@ -8,12 +8,13 @@ use slot_power::{Platform, Power};
 use slot_store::format_stamp;
 use slot_ui::{
     arrows_hint_face, badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face,
-    gb_cart_shadow, hhmm, hint_face, icon_face, menu_face, photo_face, quick_caret_face,
-    quick_label_face, quick_legend_faces, quick_value_face, rate_face, rate_text,
-    rebuild_count_face, rebuild_title_face, set_clock_hint_face, socket_face, status_icon_face,
-    sticker_face, title_face, toast_face, wallpaper_face, word_face, CartFace, GbShell, Icon,
-    LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StatusIcon,
-    StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
+    gb_cart_shadow, hhmm, hint_face, icon_face, marquee_shift, menu_face, photo_face,
+    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, rail_glyph_face,
+    rate_face, rate_text, rebuild_count_face, rebuild_title_face, set_clock_hint_face, socket_face,
+    status_icon_face, sticker_face, title_face, title_strip, title_window, toast_face,
+    wallpaper_face, word_face, CartFace, GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces,
+    QuickRow, QuickValue, RebuildScreen, StatusIcon, StickerFields, Toast, UndoFace, ALERT_PX,
+    BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -60,6 +61,16 @@ pub struct Frontend {
     bt_setup: BtSetupFace,
     cheevos_setup: CheevosSetupFace,
     cheevo: CheevoFace,
+    shelf_index: ShelfIndexFaces,
+}
+
+#[derive(Default)]
+struct ShelfIndexFaces {
+    rail: std::collections::HashSet<char>,
+    title: String,
+    strip: Option<UndoFace>,
+    title_tex: Option<TexId>,
+    shift: Option<u32>,
 }
 
 #[derive(Default)]
@@ -171,6 +182,7 @@ impl Frontend {
             undo_tex: None,
             switcher: Switcher::default(),
             clocks: Clocks::default(),
+            shelf_index: ShelfIndexFaces::default(),
             about: AboutFace::default(),
             quick_live: QuickRow::LIVE
                 .iter()
@@ -408,6 +420,7 @@ impl Frontend {
             crate::cart_faces::FRAME_WAIT,
         );
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
+        sync_shelf_index(self.session.app_mut(), compositor, &mut self.shelf_index);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
         sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
@@ -789,6 +802,44 @@ fn sync_clock(app: &mut App, compositor: &mut Compositor, clocks: &mut Clocks) {
             let id = upload(compositor, &mut clocks.battery_tex, face);
             app.set_battery_percent_face(id, w);
         }
+    }
+}
+
+fn sync_shelf_index(app: &mut App, compositor: &mut Compositor, faces: &mut ShelfIndexFaces) {
+    let new: Vec<char> = app
+        .rail_letters()
+        .iter()
+        .copied()
+        .filter(|c| !faces.rail.contains(c))
+        .collect();
+    for letter in new {
+        let face = rail_glyph_face(letter);
+        let (w, h) = (face.w, face.h);
+        let id = upload(compositor, &mut None, face);
+        faces.rail.insert(letter);
+        app.set_rail_face(letter, id, w, h);
+    }
+    let title = app.shelf_title().unwrap_or_default();
+    if title != faces.title {
+        faces.strip = (!title.is_empty()).then(|| title_strip(&title));
+        faces.title = title;
+        faces.shift = None;
+    }
+    let Some(strip) = &faces.strip else {
+        return;
+    };
+    // Only a name that is showing and too long for the slot is redrawn as it
+    // scrolls; the rest are drawn once.
+    let shift = match app.shelf_index_alpha() > 0.0 {
+        true => marquee_shift(strip.w, app.shelf_title_since()),
+        false => 0,
+    };
+    if faces.shift != Some(shift) {
+        faces.shift = Some(shift);
+        let face = title_window(strip, shift);
+        let w = face.w;
+        let id = upload(compositor, &mut faces.title_tex, face);
+        app.set_shelf_title_face(id, w);
     }
 }
 

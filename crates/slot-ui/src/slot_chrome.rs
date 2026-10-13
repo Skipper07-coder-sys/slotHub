@@ -246,15 +246,20 @@ fn for_each_scoop_span(mut span: impl FnMut(f32, f32, f32)) {
     }
 }
 
+/// Top of a line of text `h` tall centred in the slot's opening.
+pub(crate) fn slot_name_y(h: f32) -> f32 {
+    let hole = SCOOP_Y + SCOOP_D - SLIT_Y;
+    SLIT_Y + (hole - h) / 2.0
+}
+
 pub fn draw_slot_name(name: Printed, alpha: f32, out: &mut Vec<Draw>) {
     let (Some(tex), true) = (name.face, alpha > 0.0) else {
         return;
     };
     let (w, h) = (name.w as f32, HINT_H as f32);
-    let hole = SCOOP_Y + SCOOP_D - SLIT_Y;
     out.push(Draw::Tex {
         x: CX - w / 2.0,
-        y: SLIT_Y + (hole - h) / 2.0,
+        y: slot_name_y(h),
         w,
         h,
         tex,

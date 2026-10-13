@@ -36,7 +36,7 @@ pub fn rest_y(h: f32) -> f32 {
 pub fn foot_y(h: f32) -> f32 {
     rest_y(h) + h
 }
-const OMEGA: f32 = 16.0;
+pub(crate) const OMEGA: f32 = 16.0;
 const PART: f32 = 130.0;
 
 const SLOTS: i32 = 3;

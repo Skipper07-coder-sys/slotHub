@@ -5,6 +5,7 @@
 Changes in this fork, on top of slot 1.6.0.
 
 - Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
+- The shelf shows where you are while it moves: a thin row of five first letters over the carts, the current one in the middle, gliding on the same spring as the carts, and the selected game's name pressed into the slot. Names too long for the slot scroll. Both fade away about 3 seconds after the shelf stops, and the name sinks into the slot with the cart. This replaces the faint letter that showed in the slot after an Up / Down jump. The letters use Inter Light (SIL OFL 1.1, `licenses/inter-OFL-1.1.txt`).
 
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
 
