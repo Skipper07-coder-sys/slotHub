@@ -1,6 +1,7 @@
 mod alsa;
 #[cfg(feature = "host")]
 mod host;
+mod pacer;
 mod ring;
 pub mod route;
 mod sfx;
@@ -12,6 +13,7 @@ pub mod volume;
 pub use alsa::AlsaSink;
 #[cfg(feature = "host")]
 pub use host::HostAudio;
+pub use pacer::Pacer;
 pub use ring::{ring_capacity, Ring};
 pub use sfx::Sfx;
 pub use silence::Silence;
