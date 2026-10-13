@@ -172,8 +172,23 @@ fn signing_in_asks_a_name_then_a_password_and_keeps_only_the_token() {
     assert_eq!(a.quick_menu(), Some(QuickRow::Cheevos));
     assert_eq!(a.cheevos_text(), "qw");
 
-    // A again signs out and forgets the card's token.
+    // A again shows the account and keeps it; B goes back signed in.
     press(&mut a, Btn::A);
+    assert_eq!(
+        a.cheevos_setup(),
+        Some(&CheevosSetup::Account {
+            username: "qw".into()
+        })
+    );
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::Cheevos));
+    assert_eq!(a.cheevos_text(), "qw");
+    assert!(read_cheevos(d.path()).is_some());
+
+    // Y on the account signs out and forgets the card's token.
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::Y);
+    assert_eq!(a.quick_menu(), Some(QuickRow::Cheevos));
     assert_eq!(a.cheevos_text(), "Off");
     assert_eq!(read_cheevos(d.path()), None);
     assert_eq!(fake.calls().last().map(String::as_str), Some("sign_out"));

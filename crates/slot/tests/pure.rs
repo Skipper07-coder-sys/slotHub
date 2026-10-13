@@ -304,11 +304,7 @@ fn the_gameplay_page_draws_its_rows_centred_and_none_of_the_locked_ones() {
         })
         .collect();
     let top = (OUT_H as f32 - QUICK_PITCH * QuickRow::GAME_PURE.len() as f32) / 2.0;
-    assert_eq!(
-        bars,
-        vec![top + 4.0],
-        "the bar is not on the first row"
-    );
+    assert_eq!(bars, vec![top + 4.0], "the bar is not on the first row");
 }
 
 #[test]

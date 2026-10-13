@@ -1988,15 +1988,16 @@ impl App {
         }
     }
 
-    // A on RetroAchievements: sign in when signed out, sign out when not.
+    // A on RetroAchievements: sign in when signed out; when signed in, show
+    // the account, where only Y signs out, so a stray press keeps it.
     fn press_cheevos(&mut self) {
-        if self.cheevos.has_account() {
-            self.cheevos.sign_out();
-            return;
-        }
-        self.phase = Phase::CheevosSetup {
-            setup: CheevosSetup::default(),
+        let setup = match self.cheevos.username() {
+            Some(name) => CheevosSetup::Account {
+                username: name.to_string(),
+            },
+            None => CheevosSetup::default(),
         };
+        self.phase = Phase::CheevosSetup { setup };
     }
 
     pub fn cheevos_setup(&self) -> Option<&CheevosSetup> {
@@ -2060,6 +2061,12 @@ impl App {
             }
             CheevosOutcome::SignIn { username, password } => {
                 self.cheevos.sign_in(&username, password);
+            }
+            CheevosOutcome::SignOut => {
+                self.cheevos.sign_out();
+                self.phase = Phase::QuickMenu {
+                    row: QuickRow::Cheevos,
+                }
             }
         }
     }
