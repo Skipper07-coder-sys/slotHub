@@ -33,10 +33,11 @@ pub enum QuickRow {
     WifiDrive,
     WifiArt,
     Cheevos,
+    RunAhead,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 26] = [
+    pub const ALL: [QuickRow; 27] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -63,6 +64,7 @@ impl QuickRow {
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
         QuickRow::Cheevos,
+        QuickRow::RunAhead,
     ];
 
     pub const MAIN: [QuickRow; 7] = [
@@ -82,10 +84,11 @@ impl QuickRow {
         QuickRow::GbPalettes,
     ];
 
-    pub const GAME: [QuickRow; 7] = [
+    pub const GAME: [QuickRow; 8] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Rewind,
+        QuickRow::RunAhead,
         QuickRow::Turbo,
         QuickRow::Rumble,
         QuickRow::EjectSave,
@@ -141,6 +144,7 @@ impl QuickRow {
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
+            | QuickRow::RunAhead
             | QuickRow::Turbo
             | QuickRow::Rumble
             | QuickRow::EjectSave
@@ -222,6 +226,7 @@ impl QuickRow {
             QuickRow::SlotUpdate => "slot",
             QuickRow::BaseOsUpdate => "BaseOS",
             QuickRow::Cheevos => "RetroAchievements",
+            QuickRow::RunAhead => "Run-Ahead",
         }
     }
 
@@ -292,10 +297,11 @@ pub enum QuickValue {
     NotFound,
     NoAddress,
     Trouble,
+    Frames1,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 27] = [
+    pub const ALL: [QuickValue; 28] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -323,6 +329,7 @@ impl QuickValue {
         QuickValue::NotFound,
         QuickValue::NoAddress,
         QuickValue::Trouble,
+        QuickValue::Frames1,
     ];
 
     pub fn index(self) -> usize {
@@ -358,6 +365,7 @@ impl QuickValue {
             QuickValue::NotFound => "Not Found",
             QuickValue::NoAddress => "No Address",
             QuickValue::Trouble => "Failed",
+            QuickValue::Frames1 => "1 Frame",
         }
     }
 
@@ -367,6 +375,14 @@ impl QuickValue {
             3 => Some(QuickValue::Speed3),
             4 => Some(QuickValue::Speed4),
             6 => Some(QuickValue::Speed6),
+            _ => None,
+        }
+    }
+
+    pub fn frames(frames: u8) -> Option<QuickValue> {
+        match frames {
+            0 => Some(QuickValue::Off),
+            1 => Some(QuickValue::Frames1),
             _ => None,
         }
     }
