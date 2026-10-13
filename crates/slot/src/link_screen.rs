@@ -83,7 +83,7 @@ fn working_arcs(since: Millis, now: Millis) -> [f32; 3] {
 
 pub fn plug_tip(menu: GameMenu, now: Millis) -> f32 {
     match menu {
-        GameMenu::Pick(_) => PICK_TIP,
+        GameMenu::Network { .. } | GameMenu::Pick(_) => PICK_TIP,
         GameMenu::Working { since, .. } => working_tip(since, now),
         GameMenu::Linked { worked, since, .. } => lerp(
             working_tip(worked, since),
@@ -115,7 +115,7 @@ pub fn art_alpha(menu: GameMenu, now: Millis) -> f32 {
 
 pub fn adapter_base(menu: GameMenu, now: Millis) -> f32 {
     match menu {
-        GameMenu::Pick(_) => PICK_BASE,
+        GameMenu::Network { .. } | GameMenu::Pick(_) => PICK_BASE,
         GameMenu::Working { since, .. } => working_base(since, now),
         GameMenu::Linked { worked, since, .. } => lerp(
             working_base(worked, since),
@@ -129,7 +129,7 @@ pub fn adapter_base(menu: GameMenu, now: Millis) -> f32 {
 
 pub fn arc_alphas(menu: GameMenu, now: Millis) -> [f32; 3] {
     match menu {
-        GameMenu::Pick(_) => [0.0; 3],
+        GameMenu::Network { .. } | GameMenu::Pick(_) => [0.0; 3],
         GameMenu::Working { since, .. } => working_arcs(since, now),
         GameMenu::Linked { worked, since, .. } => {
             let from = working_arcs(worked, since);
@@ -161,7 +161,8 @@ pub fn clicks_alpha(menu: GameMenu, now: Millis) -> f32 {
 
 fn role_of(menu: GameMenu) -> LinkRow {
     match menu {
-        GameMenu::Pick(role)
+        GameMenu::Network { role, .. }
+        | GameMenu::Pick(role)
         | GameMenu::Working { role, .. }
         | GameMenu::Linked { role, .. }
         | GameMenu::Failed { role, .. }
@@ -236,20 +237,22 @@ pub fn draw_link_art(
             }
         }
     }
-    if matches!(menu, GameMenu::Pick(_)) {
+    if matches!(menu, GameMenu::Network { .. } | GameMenu::Pick(_)) {
         tex(out, s.arrow_left, ARROW_LEFT_X, ARROW_Y, ARROW_ALPHA);
         tex(out, s.arrow_right, ARROW_RIGHT_X, ARROW_Y, ARROW_ALPHA);
     }
 }
 
-/// The plate on the console that says which network a link started now would use. Only on the
-/// role picker, where the choice of who hosts is made and a player about to press A is about to
-/// find out whether they and the other player are on the same one. Drawn over the console strip
-/// after the art, and quiet: no motion, since nothing about the network moves.
+/// The plate on the console that says which network the link uses: the one highlighted on the
+/// network step, then the one picked there while Host or Join is chosen. `home` is the picked
+/// one; the network step shows its own. Drawn over the console strip after the art, and quiet:
+/// no motion, since nothing about the network moves.
 pub fn draw_network_label(menu: GameMenu, home: bool, s: &LinkSprites, out: &mut Vec<Draw>) {
-    if !matches!(menu, GameMenu::Pick(_)) {
-        return;
-    }
+    let home = match menu {
+        GameMenu::Network { home, .. } => home,
+        GameMenu::Pick(_) => home,
+        _ => return,
+    };
     tex(
         out,
         if home { s.net_home } else { s.net_direct },

@@ -708,7 +708,12 @@ impl UiFaces {
                 arrows_hint_face("Swap"),
                 hint_face("A", "Choose"),
             ],
-            link_roles: LinkRow::ALL.iter().map(|r| menu_face(r.text())).collect(),
+            link_roles: LinkRow::ALL
+                .iter()
+                .map(|r| r.text())
+                .chain(["Home Wi-Fi", "Direct"])
+                .map(menu_face)
+                .collect(),
             linked: menu_face("Linked"),
             link_legend: vec![
                 hint_face("B", "Cancel"),
@@ -718,6 +723,7 @@ impl UiFaces {
                 hint_face("A", "OK"),
                 hint_face("B", "Back"),
                 hint_face("A", "End Link"),
+                hint_face("A", "Next"),
             ],
             link_steps: LinkStep::ALL.iter().map(|s| menu_face(s.line())).collect(),
             link_fails: LinkFail::SHOWN
