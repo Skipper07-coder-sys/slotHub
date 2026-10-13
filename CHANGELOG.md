@@ -5,6 +5,7 @@
 Changes in this fork, on top of slot 1.6.0.
 
 - Pure mode. `pure = on` in `Config/pure.txt` switches off fast-forward, rewind, the turbo buttons, save states and the save state switcher, and a resume can be used once. Shaders, palettes and the other screen settings stay. There is no setting for it on the device. See the README.
+- Settings: Network and Choose Network are one row. It shows the network you are on, and A opens the list, where saved networks join without their password (Y types a new one). The Wi-Fi page keeps Wi-Fi, Network and Wi-Fi Drive. RetroAchievements moved to Gameplay and Game Artwork to Update. Text too long for its place scrolls right to left on the highlighted row (Settings, the Wi-Fi list and the headphones list), and other rows end it with "...".
 
 ## [1.6.0](https://github.com/BrandonKowalski/slot/releases/tag/v1.6.0)
 
