@@ -839,7 +839,7 @@ fn sync_shelf_index(app: &mut App, compositor: &mut Compositor, faces: &mut Shel
         let face = title_window(strip, shift);
         let w = face.w;
         let id = upload(compositor, &mut faces.title_tex, face);
-        app.set_shelf_title_face(id, w);
+        app.set_shelf_title_face(id, w, slot_ui::index_hold(strip.w));
     }
 }
 

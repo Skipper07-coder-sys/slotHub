@@ -361,6 +361,8 @@ pub struct App {
     name_pending: bool,
     shelf_named: Option<Millis>,
     shelf_moved: Option<Millis>,
+    shelf_shown: Millis,
+    shelf_hold: Millis,
     shelf_seen: (usize, usize),
     letters: Vec<char>,
     rail: slot_ui::LetterRail,
@@ -558,6 +560,8 @@ impl App {
             name_pending: false,
             shelf_named: None,
             shelf_moved: None,
+            shelf_shown: 0,
+            shelf_hold: slot_ui::INDEX_HOLD_MS,
             shelf_seen: (usize::MAX, usize::MAX),
             letters: Vec::new(),
             rail: slot_ui::LetterRail::default(),
@@ -703,11 +707,20 @@ impl App {
     /// shelf moves, gone a few seconds after it stops, and out of the way of
     /// the shelf's name when L1 / R1 change shelves.
     pub fn shelf_index_alpha(&self) -> f32 {
+        let name = self.slot_name_alpha() / SLOT_NAME_ALPHA;
+        self.index_level() * (1.0 - name)
+    }
+
+    fn index_level(&self) -> f32 {
         let Some(at) = self.shelf_moved else {
             return 0.0;
         };
-        let name = self.slot_name_alpha() / SLOT_NAME_ALPHA;
-        slot_ui::index_alpha(self.now().saturating_sub(at)) * (1.0 - name)
+        let now = self.now();
+        slot_ui::index_alpha(
+            now.saturating_sub(self.shelf_shown),
+            now.saturating_sub(at),
+            self.shelf_hold,
+        )
     }
 
     pub fn rail_letters(&self) -> &[char] {
@@ -731,8 +744,11 @@ impl App {
             .map_or(0, |at| self.now().saturating_sub(at))
     }
 
-    pub fn set_shelf_title_face(&mut self, face: TexId, w: u32) {
+    /// The slot's name, and how long the index stays once the shelf stops on
+    /// it: long enough for a scrolling name to go all the way round.
+    pub fn set_shelf_title_face(&mut self, face: TexId, w: u32, hold: Millis) {
         self.shelf_title_face = Some((face, w));
+        self.shelf_hold = hold;
     }
 
     fn watch_shelf(&mut self, dt: f32) {
@@ -740,7 +756,16 @@ impl App {
         if seen != self.shelf_seen {
             // The selection the shelf opens on is not a move.
             if self.shelf_seen.0 != usize::MAX {
-                self.shelf_moved = Some(self.now());
+                let now = self.now();
+                let level = self.index_level();
+                // Gone: fade in afresh. Fading out: back up at once. Up or
+                // coming up: carry on, so fast scrolling does not restart it.
+                if level <= 0.0 {
+                    self.shelf_shown = now;
+                } else if now.saturating_sub(self.shelf_shown) >= slot_ui::INDEX_IN_MS {
+                    self.shelf_shown = now - slot_ui::INDEX_IN_MS;
+                }
+                self.shelf_moved = Some(now);
             }
             self.shelf_seen = seen;
         }

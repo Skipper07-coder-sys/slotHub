@@ -9,8 +9,8 @@ use crate::shelf::{rest_y, OMEGA};
 use crate::slot_chrome::{ease, slot_name_y};
 use crate::text;
 
-/// Inter Light, cut down to # A-Z and the accented capitals.
-const RAIL_OTF: &[u8] = include_bytes!("../assets/inter-light-rail.otf");
+/// Inter SemiBold, cut down to # A-Z and the accented capitals.
+const RAIL_OTF: &[u8] = include_bytes!("../assets/inter-semibold-rail.otf");
 
 pub const RAIL_PX: f32 = 26.0;
 const RAIL_GAP: f32 = 40.0;
@@ -33,6 +33,7 @@ const TITLE_SINK: f32 = 14.0;
 const MARQUEE_GAP: u32 = 60;
 const MARQUEE_PX_PER_S: f32 = 32.0;
 pub const MARQUEE_WAIT_MS: u64 = 1000;
+const MARQUEE_REST_MS: u64 = 800;
 
 pub const INDEX_IN_MS: u64 = 150;
 pub const INDEX_HOLD_MS: u64 = 2500;
@@ -44,18 +45,27 @@ fn rail_font() -> Option<&'static Font> {
         .as_ref()
 }
 
-/// How visible the letter rail and the slot title are, `since` ms after the
-/// shelf last moved: in quickly, held, then eased away so a resting shelf is
-/// only carts.
-pub fn index_alpha(since: u64) -> f32 {
-    if since < INDEX_IN_MS {
-        return ease(since as f32 / INDEX_IN_MS as f32);
+/// How visible the letter rail and the slot title are. `shown` is how long
+/// ago they started showing, `moved` how long ago the shelf last moved, and
+/// `hold` how long they stay after that move. Fast scrolling keeps moving, so
+/// they stay up; they come in once, not again on every cart.
+pub fn index_alpha(shown: u64, moved: u64, hold: u64) -> f32 {
+    let fade_in = ease((shown as f32 / INDEX_IN_MS as f32).min(1.0));
+    if moved < hold {
+        return fade_in;
     }
-    let held = INDEX_IN_MS + INDEX_HOLD_MS;
-    if since < held {
-        return 1.0;
+    fade_in * (1.0 - ease(((moved - hold) as f32 / INDEX_OUT_MS as f32).min(1.0)))
+}
+
+/// How long the index stays after the shelf stops on a name `strip_w` wide:
+/// the usual hold, or long enough for a scrolling name to come all the way
+/// round once.
+pub fn index_hold(strip_w: u32) -> u64 {
+    if strip_w <= TITLE_WIN_W {
+        return INDEX_HOLD_MS;
     }
-    1.0 - ease(((since - held) as f32 / INDEX_OUT_MS as f32).min(1.0))
+    let lap = (strip_w + MARQUEE_GAP) as f32 / MARQUEE_PX_PER_S * 1000.0;
+    INDEX_HOLD_MS.max(MARQUEE_WAIT_MS + lap.ceil() as u64 + MARQUEE_REST_MS)
 }
 
 /// The distinct first letters of a shelf, in shelf order.

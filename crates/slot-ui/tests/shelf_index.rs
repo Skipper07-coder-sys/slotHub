@@ -1,17 +1,37 @@
 use slot_gfx::{Draw, TexId};
 use slot_ui::{
-    index_alpha, marquee_shift, rail_glyph_face, shelf_letters, title_strip, title_window,
-    LetterRail, INDEX_HOLD_MS, INDEX_IN_MS, INDEX_OUT_MS, MARQUEE_WAIT_MS, TITLE_WIN_W,
+    index_alpha, index_hold, marquee_shift, rail_glyph_face, shelf_letters, title_strip,
+    title_window, LetterRail, INDEX_HOLD_MS, INDEX_IN_MS, INDEX_OUT_MS, MARQUEE_WAIT_MS,
+    TITLE_WIN_W,
 };
 
 #[test]
 fn the_index_comes_up_quickly_holds_then_goes() {
-    assert_eq!(index_alpha(0), 0.0);
-    assert_eq!(index_alpha(INDEX_IN_MS), 1.0);
-    assert_eq!(index_alpha(INDEX_IN_MS + INDEX_HOLD_MS - 1), 1.0);
-    let half = index_alpha(INDEX_IN_MS + INDEX_HOLD_MS + INDEX_OUT_MS / 2);
+    let hold = INDEX_HOLD_MS;
+    assert_eq!(index_alpha(0, 0, hold), 0.0);
+    assert_eq!(index_alpha(INDEX_IN_MS, INDEX_IN_MS, hold), 1.0);
+    assert_eq!(index_alpha(hold + 5000, hold - 1, hold), 1.0);
+    let half = index_alpha(60_000, hold + INDEX_OUT_MS / 2, hold);
     assert!(half > 0.0 && half < 1.0, "the fade out jumped: {half}");
-    assert_eq!(index_alpha(INDEX_IN_MS + INDEX_HOLD_MS + INDEX_OUT_MS), 0.0);
+    assert_eq!(index_alpha(60_000, hold + INDEX_OUT_MS, hold), 0.0);
+}
+
+#[test]
+fn a_scrolling_name_holds_the_index_until_it_has_gone_round_once() {
+    let short = title_strip("Zelda");
+    assert_eq!(index_hold(short.w), INDEX_HOLD_MS);
+    let long = title_strip("Pokemon Mystery Dungeon Red Rescue Team");
+    let hold = index_hold(long.w);
+    assert!(hold > INDEX_HOLD_MS);
+    // By the end of the hold the name is back where it started.
+    let mut t = MARQUEE_WAIT_MS + 1;
+    while marquee_shift(long.w, t) != 0 {
+        t += 10;
+    }
+    assert!(
+        t <= hold,
+        "the name was still scrolling when it faded: {t} > {hold}"
+    );
 }
 
 #[test]

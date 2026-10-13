@@ -80,9 +80,9 @@ pub use rebuild::{rebuild_count_face, rebuild_title_face, RebuildScreen};
 pub use refusal::Refusal;
 pub use shelf::{foot_y, rest_y, set_shelf_slack, Shelf};
 pub use shelf_index::{
-    draw_slot_title, index_alpha, marquee_shift, rail_glyph_face, rail_y, shelf_letters,
-    title_scrolls, title_strip, title_window, LetterRail, INDEX_HOLD_MS, INDEX_IN_MS, INDEX_OUT_MS,
-    MARQUEE_WAIT_MS, RAIL_PX, TITLE_WIN_W,
+    draw_slot_title, index_alpha, index_hold, marquee_shift, rail_glyph_face, rail_y,
+    shelf_letters, title_scrolls, title_strip, title_window, LetterRail, INDEX_HOLD_MS,
+    INDEX_IN_MS, INDEX_OUT_MS, MARQUEE_WAIT_MS, RAIL_PX, TITLE_WIN_W,
 };
 pub use shell::{
     gb_table_shells, gba_shell_for, lookup_order_is_exact_then_family_then_default, shell_for,
