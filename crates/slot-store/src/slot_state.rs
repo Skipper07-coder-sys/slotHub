@@ -60,10 +60,13 @@ pub enum Shader {
     LcdGrid,
     CurvedCrt,
     LcdGridBright,
+    Lcd3xBright18,
+    Lcd3xBright20,
+    Lcd3xVba,
 }
 
 impl Shader {
-    pub const GBA: [Shader; 12] = [
+    pub const GBA: [Shader; 15] = [
         Shader::Off,
         Shader::Lcd3x,
         Shader::Grid,
@@ -71,13 +74,16 @@ impl Shader {
         Shader::Lcd1x,
         Shader::LcdGrid,
         Shader::LcdGridBright,
+        Shader::Lcd3xBright18,
+        Shader::Lcd3xBright20,
+        Shader::Lcd3xVba,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
         Shader::CurvedCrt,
         Shader::Simpletex,
     ];
-    pub const GB: [Shader; 12] = [
+    pub const GB: [Shader; 15] = [
         Shader::Off,
         Shader::Grid,
         Shader::Simpletex,
@@ -86,6 +92,9 @@ impl Shader {
         Shader::Lcd1x,
         Shader::LcdGrid,
         Shader::LcdGridBright,
+        Shader::Lcd3xBright18,
+        Shader::Lcd3xBright20,
+        Shader::Lcd3xVba,
         Shader::Retro,
         Shader::Bevel,
         Shader::Crt,
@@ -106,6 +115,9 @@ impl Shader {
             Shader::LcdGrid => "lcdgrid",
             Shader::CurvedCrt => "crtcurve",
             Shader::LcdGridBright => "lcdgridbright",
+            Shader::Lcd3xBright18 => "lcd3xbright18",
+            Shader::Lcd3xBright20 => "lcd3xbright20",
+            Shader::Lcd3xVba => "lcd3xvba",
         }
     }
 
@@ -123,6 +135,9 @@ impl Shader {
             Shader::LcdGrid,
             Shader::CurvedCrt,
             Shader::LcdGridBright,
+            Shader::Lcd3xBright18,
+            Shader::Lcd3xBright20,
+            Shader::Lcd3xVba,
         ]
         .into_iter()
         .find(|s| s.name() == name)

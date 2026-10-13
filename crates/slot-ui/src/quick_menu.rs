@@ -282,6 +282,9 @@ pub enum QuickValue {
     LcdGrid,
     CurvedCrt,
     LcdGridBright,
+    Lcd3xBright18,
+    Lcd3xBright20,
+    Lcd3xVba,
     Connected,
     NotConnected,
     Starting,
@@ -297,7 +300,7 @@ pub enum QuickValue {
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 29] = [
+    pub const ALL: [QuickValue; 32] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -315,6 +318,9 @@ impl QuickValue {
         QuickValue::LcdGrid,
         QuickValue::CurvedCrt,
         QuickValue::LcdGridBright,
+        QuickValue::Lcd3xBright18,
+        QuickValue::Lcd3xBright20,
+        QuickValue::Lcd3xVba,
         QuickValue::Connected,
         QuickValue::NotConnected,
         QuickValue::Starting,
@@ -352,6 +358,9 @@ impl QuickValue {
             QuickValue::LcdGrid => "LCD Grid",
             QuickValue::CurvedCrt => "Curved CRT",
             QuickValue::LcdGridBright => "LCD Grid Bright",
+            QuickValue::Lcd3xBright18 => "LCD3x 18/12",
+            QuickValue::Lcd3xBright20 => "LCD3x 20/12",
+            QuickValue::Lcd3xVba => "LCD3x VBA",
             QuickValue::Connected => "Connected",
             QuickValue::NotConnected => "Not Connected",
             QuickValue::Starting => "Starting...",

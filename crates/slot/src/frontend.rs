@@ -431,6 +431,9 @@ impl Frontend {
             slot_store::Shader::LcdGrid => ScreenEffect::LcdGrid,
             slot_store::Shader::CurvedCrt => ScreenEffect::CurvedCrt,
             slot_store::Shader::LcdGridBright => ScreenEffect::LcdGridBright,
+            slot_store::Shader::Lcd3xBright18 => ScreenEffect::Lcd3xBright18,
+            slot_store::Shader::Lcd3xBright20 => ScreenEffect::Lcd3xBright20,
+            slot_store::Shader::Lcd3xVba => ScreenEffect::Lcd3xVba,
         });
         compositor.set_shake(self.session.app().screen_shake());
         compositor.set_screen_power(self.session.app().screen_power());

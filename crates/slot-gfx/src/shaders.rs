@@ -95,6 +95,11 @@ const mat3 P22D93 = mat3(
     1.00000, 0.00000, -0.06173,
     0.07111, 0.96887, -0.01136,
     0.00000, 0.08197, 1.07280);
+// vba-color by Pokefan531 and hunterk, public domain.
+const mat3 VBA_COLOR = mat3(
+    0.73, 0.085, 0.085,
+    0.27, 0.675, 0.24,
+    0.0, 0.24, 0.675);
 vec3 soft_texel(vec2 p) {
     vec2 t = p - 0.5;
     vec2 i = floor(t);
@@ -112,6 +117,17 @@ void main() {
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
     vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
+    } else if (u_mode > 11.5) {
+        // LCD3x with brighter scanlines (18 or 20) and LCD (12), and VBA-Color
+        // (darken 0.5) ahead of it.
+        if (u_mode > 13.5) {
+            c = pow(c, vec3(1.45 + 0.5 * 1.7));
+            c = VBA_COLOR * c;
+            c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / 1.45));
+        }
+        float scan = u_mode > 12.5 && u_mode < 13.5 ? 20.0 : 18.0;
+        vec2 angle = f * 6.283185307;
+        c *= (scan + sin(angle.y)) / (scan + 1.0) * (12.0 + sin(angle.x + offsets)) / 13.0;
     } else if (u_mode > 10.5 || (u_mode > 8.5 && u_mode < 9.5)) {
         vec2 tl = floor(uv * u_src - 0.4999);
         float sx = (uv.x * u_src.x - 0.4999 - tl.x) * 3.0;

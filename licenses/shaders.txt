@@ -33,4 +33,7 @@ zfast_crt_geo by Greg Hogan (SoltanGris42), copyright (C) 2017, and Jose Linares
 copyright (C) 2023. GNU General Public License version 2 or later.
 Changes: the game picture is sampled nearest, so the shader blends the texels itself.
 
+LCD3x 18/12, 20/12 and VBA are LCD3x with BRIGHTEN_SCANLINES 18 or 20 and BRIGHTEN_LCD 12.
+The VBA one runs vba-color (Pokefan531, hunterk; public domain) first, with darken_screen 0.5.
+
 slot itself is GNU General Public License version 3 or later, which these licenses permit.
