@@ -33,11 +33,13 @@ pub enum Toast {
     BatteryLow10,
     FavoriteAdded,
     FavoriteRemoved,
+    CalibrationOn,
+    CalibrationOff,
     Palette(GbPalette),
 }
 
 impl Toast {
-    const FIXED: [Toast; 25] = [
+    const FIXED: [Toast; 27] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -63,6 +65,8 @@ impl Toast {
         Toast::BatteryLow10,
         Toast::FavoriteAdded,
         Toast::FavoriteRemoved,
+        Toast::CalibrationOn,
+        Toast::CalibrationOff,
     ];
 
     pub fn all() -> Vec<Toast> {
@@ -117,6 +121,8 @@ impl Toast {
             Toast::BatteryLow10 => "Battery Low: 10%",
             Toast::FavoriteAdded => "Favorite Added",
             Toast::FavoriteRemoved => "Favorite Removed",
+            Toast::CalibrationOn => "Calibration On",
+            Toast::CalibrationOff => "Calibration Off",
             Toast::Palette(p) => p.label(),
         }
     }

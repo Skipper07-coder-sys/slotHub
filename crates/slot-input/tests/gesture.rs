@@ -511,10 +511,10 @@ fn a_and_b_on_their_own_are_untouched_by_the_shader_chord() {
 }
 
 #[test]
-fn x_under_select_reaches_the_game() {
+fn x_under_select_toggles_the_panel_calibration_like_y_does_colour() {
     let mut g = Gestures::new();
     assert!(g.feed(Down(Select), 0).is_empty());
-    assert_eq!(g.feed(Down(X), 10), vec![GbaDown(Select), GbaDown(X)]);
+    assert_eq!(g.feed(Down(X), 10), vec![PanelCalibrationToggle]);
 }
 
 #[test]
@@ -558,6 +558,7 @@ fn pure_keeps_the_chords_that_only_touch_the_screen_and_sound() {
         (A, ShaderNext),
         (B, ShaderPrev),
         (Y, ColourCorrectionToggle),
+        (X, PanelCalibrationToggle),
         (L2, PalettePrev),
         (R2, PaletteNext),
     ] {
