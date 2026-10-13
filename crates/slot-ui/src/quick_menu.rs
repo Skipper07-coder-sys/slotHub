@@ -16,6 +16,7 @@ pub enum QuickRow {
     GbaShader,
     GbShader,
     ColourCorrection,
+    PanelCalibration,
     Game,
     EjectSave,
     Turbo,
@@ -47,6 +48,7 @@ impl QuickRow {
         QuickRow::GbaShader,
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::Game,
         QuickRow::EjectSave,
         QuickRow::Turbo,
@@ -77,10 +79,11 @@ impl QuickRow {
         QuickRow::About,
     ];
 
-    pub const SCREEN: [QuickRow; 4] = [
+    pub const SCREEN: [QuickRow; 5] = [
         QuickRow::GbaShader,
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::GbPalettes,
     ];
 
@@ -137,6 +140,7 @@ impl QuickRow {
             QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
+            | QuickRow::PanelCalibration
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiDrive => &QuickRow::WIFI,
@@ -211,6 +215,7 @@ impl QuickRow {
             QuickRow::GbaShader => "GBA Shader",
             QuickRow::GbShader => "GB / GBC Shader",
             QuickRow::ColourCorrection => "Color Correction",
+            QuickRow::PanelCalibration => "Panel Calibration",
             QuickRow::Game => "Gameplay",
             QuickRow::EjectSave => "Auto Save on Eject",
             QuickRow::Turbo => "Turbo Buttons",

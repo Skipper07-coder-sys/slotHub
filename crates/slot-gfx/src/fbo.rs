@@ -24,6 +24,7 @@ pub struct Compositor {
     u_blit_uv: gl::types::GLint,
     split: Option<f32>,
     gain: [f32; 3],
+    panel_calibration: Option<bool>,
     shake: f32,
     lift: f32,
     screen: f32,
@@ -89,6 +90,7 @@ impl Compositor {
                 u_blit_uv,
                 split: None,
                 gain: blue_light_gain(0),
+                panel_calibration: None,
                 shake: 0.0,
                 lift: 1.0,
                 screen: 0.0,
@@ -168,6 +170,19 @@ impl Compositor {
 
     pub fn set_blue_light(&mut self, step: u8) {
         self.gain = blue_light_gain(step);
+    }
+
+    /// Turns the panel's measured colour table on or off. The display engine
+    /// applies it after composition, so it costs no GPU time; the ioctl only
+    /// runs when the setting changes.
+    pub fn set_panel_calibration(&mut self, on: bool) {
+        if self.panel_calibration == Some(on) {
+            return;
+        }
+        self.panel_calibration = Some(on);
+        if let Err(e) = crate::displaycal::set_device(on) {
+            eprintln!("slot: display calibration: {e}");
+        }
     }
 
     pub fn set_screen_effect(&mut self, effect: crate::ScreenEffect) {
