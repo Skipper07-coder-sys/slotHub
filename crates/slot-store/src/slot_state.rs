@@ -52,7 +52,6 @@ pub enum Shader {
     Lcd3x,
     Grid,
     Dot,
-    Simpletex,
     Lcd1x,
     Retro,
     Bevel,
@@ -63,7 +62,7 @@ pub enum Shader {
 }
 
 impl Shader {
-    pub const GBA: [Shader; 12] = [
+    pub const GBA: [Shader; 11] = [
         Shader::Off,
         Shader::Lcd3x,
         Shader::Lcd3xBright,
@@ -75,12 +74,10 @@ impl Shader {
         Shader::Bevel,
         Shader::Crt,
         Shader::CurvedCrt,
-        Shader::Simpletex,
     ];
-    pub const GB: [Shader; 12] = [
+    pub const GB: [Shader; 11] = [
         Shader::Off,
         Shader::Grid,
-        Shader::Simpletex,
         Shader::Lcd3x,
         Shader::Lcd3xBright,
         Shader::Dot,
@@ -98,7 +95,6 @@ impl Shader {
             Shader::Lcd3x => "lcd3x",
             Shader::Grid => "grid",
             Shader::Dot => "dot",
-            Shader::Simpletex => "simpletex",
             Shader::Lcd1x => "lcd1x",
             Shader::Retro => "retro",
             Shader::Bevel => "bevel",
@@ -115,7 +111,6 @@ impl Shader {
             Shader::Lcd3x,
             Shader::Grid,
             Shader::Dot,
-            Shader::Simpletex,
             Shader::Lcd1x,
             Shader::Retro,
             Shader::Bevel,
@@ -159,7 +154,7 @@ impl Default for SlotState {
             ff_sound: false,
             colour_correction: false,
             shader_gba: Shader::Grid,
-            shader_gb: Shader::Simpletex,
+            shader_gb: Shader::Grid,
             eject_save: true,
             turbo: true,
             rewind: true,

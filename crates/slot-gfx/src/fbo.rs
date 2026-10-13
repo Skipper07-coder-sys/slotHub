@@ -178,10 +178,6 @@ impl Compositor {
         self.game.set_picture(rect);
     }
 
-    pub fn set_paper(&mut self, size: u32, gray: &[u8]) {
-        self.game.set_paper(size, gray);
-    }
-
     pub fn fit(&mut self, window: (u32, u32)) {
         let size = canvas_size(window);
         if size == self.size {

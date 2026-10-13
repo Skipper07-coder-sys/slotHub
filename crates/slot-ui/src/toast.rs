@@ -21,7 +21,6 @@ pub enum Toast {
     ShaderLcd3x,
     ShaderGrid,
     ShaderDot,
-    ShaderSimpletex,
     ShaderLcd1x,
     ShaderRetro,
     ShaderBevel,
@@ -35,7 +34,7 @@ pub enum Toast {
 }
 
 impl Toast {
-    const FIXED: [Toast; 23] = [
+    const FIXED: [Toast; 22] = [
         Toast::StateSaved,
         Toast::StateLoaded,
         Toast::NeedsGpsp,
@@ -49,7 +48,6 @@ impl Toast {
         Toast::ShaderLcd3x,
         Toast::ShaderGrid,
         Toast::ShaderDot,
-        Toast::ShaderSimpletex,
         Toast::ShaderLcd1x,
         Toast::ShaderRetro,
         Toast::ShaderBevel,
@@ -101,7 +99,6 @@ impl Toast {
             Toast::ShaderLcd3x => "Shader: LCD3x",
             Toast::ShaderGrid => "Shader: Grid",
             Toast::ShaderDot => "Shader: Dot",
-            Toast::ShaderSimpletex => "Shader: Simpletex",
             Toast::ShaderLcd1x => "Shader: LCD1x",
             Toast::ShaderRetro => "Shader: Retro",
             Toast::ShaderBevel => "Shader: Bevel",

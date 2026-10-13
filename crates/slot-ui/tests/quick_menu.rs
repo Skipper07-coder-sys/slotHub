@@ -169,7 +169,6 @@ fn the_values_read_as_the_menu_prints_them() {
             "LCD3x",
             "Grid",
             "Dot",
-            "Simpletex",
             "LCD1x",
             "Retro",
             "Bevel",

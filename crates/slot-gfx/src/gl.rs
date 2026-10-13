@@ -89,13 +89,6 @@ pub fn es() -> bool {
 
 const LUMINANCE: gl::types::GLenum = 0x1909;
 
-pub fn gray_format() -> gl::types::GLenum {
-    match es() {
-        true => LUMINANCE,
-        false => gl::RED,
-    }
-}
-
 pub fn internal_format(format: gl::types::GLenum) -> gl::types::GLint {
     match (es(), format) {
         (true, _) => format as gl::types::GLint,

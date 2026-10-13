@@ -9,11 +9,6 @@ Changes: sharper dots (falloff 4.0) and a 0.85 blend.
 zfast_lcd_standard by Greg Hogan (SoltanGris42), copyright (C) 2017.
 GNU General Public License version 2 or later.
 
-simpletex_lcd by jdgleaver, using the line weighting of zfast_lcd_standard.
-GNU General Public License version 2 or later.
-The paper texture (assets/paper.png, a 1024x1024 crop of textured_paper.png) is from the same shader.
-Changes: the grid bias is 1.0, so black pixels carry no grid.
-
 lcd1x by jdgleaver, from LCD3x by Gigaherz.
 GNU General Public License version 2 or later.
 
