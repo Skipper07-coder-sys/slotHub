@@ -14,4 +14,15 @@ GNU General Public License version 2 or later.
 The paper texture (assets/paper.png, a 1024x1024 crop of textured_paper.png) is from the same shader.
 Changes: the grid bias is 1.0, so black pixels carry no grid.
 
+lcd1x by jdgleaver, from LCD3x by Gigaherz.
+GNU General Public License version 2 or later.
+
+retro-v2 by Hyllian and DOLLS. GNU General Public License version 2 or later.
+
+bevel by Hyllian/Jararaca, copyright (C) 2011-2014. GNU General Public License version 2 or later.
+
+zfast_crt by Greg Hogan (SoltanGris42), copyright (C) 2017.
+GNU General Public License version 2 or later.
+Changes: the game picture is sampled nearest, so the shader blends the four texels itself.
+
 slot itself is GNU General Public License version 3 or later, which these licenses permit.

@@ -16,6 +16,10 @@ pub enum ScreenEffect {
     Grid,
     Dot,
     Simpletex,
+    Lcd1x,
+    Retro,
+    Bevel,
+    Crt,
 }
 
 impl ScreenEffect {

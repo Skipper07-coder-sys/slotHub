@@ -70,12 +70,48 @@ vec2 grid_band(vec2 x) {
 float dot_weight(vec2 f, vec2 o, float bloom) {
     return exp(-4.0 * length(f - (o + vec2(0.5))) * bloom);
 }
+vec3 soft_texel(vec2 p) {
+    vec2 t = p - 0.5;
+    vec2 i = floor(t);
+    vec2 w = t - i;
+    vec2 a = (i + 0.5) / u_src;
+    vec2 b = (i + 1.5) / u_src;
+    vec3 top = mix(texture2D(u_game, a).rgb, texture2D(u_game, vec2(b.x, a.y)).rgb, w.x);
+    vec3 bottom = mix(texture2D(u_game, vec2(a.x, b.y)).rgb, texture2D(u_game, b).rgb, w.x);
+    return mix(top, bottom, w.y);
+}
 void main() {
     vec2 uv = u_uv.xy + v_uv * u_uv.zw;
     vec2 f = fract(uv * u_src);
     vec3 c = texture2D(u_game, uv).rgb;
     bool inside = all(greaterThanEqual(uv, u_pic.xy)) && all(lessThan(uv, u_pic.zw));
+    vec2 ps = u_uv.zw * u_src / (u_rect.zw * u_fbo);
     if (!inside) {
+    } else if (u_mode > 7.5) {
+        vec2 p = uv * u_src;
+        vec2 i = floor(p) + 0.5;
+        vec2 d = p - i;
+        p = i + 4.0 * d * d * d;
+        p.x = mix(p.x, uv.x * u_src.x, 0.45);
+        c = soft_texel(p);
+        float y2 = d.y * d.y;
+        float y4 = y2 * y2;
+        float mask = 1.0 - 0.25 * step(0.5, fract(floor(gl_FragCoord.x) * 0.5));
+        float low = 1.25 - 5.0 * (y2 - 2.05 * y4);
+        float high = 1.0 - 10.0 * (y4 - 2.8 * y4 * d.y);
+        c *= mix(low * mask, high, dot(c, vec3(0.3333 * 0.8)));
+    } else if (u_mode > 6.5) {
+        c = pow(c, vec3(2.4));
+        vec3 lift = mix(vec3(0.2), vec3(0.8), c) * (1.0 - sqrt(f.x + f.y));
+        c = pow(clamp(c + lift, 0.0, 1.0), vec3(1.0 / 2.2));
+    } else if (u_mode > 5.5) {
+        c = pow(c, vec3(2.4));
+        vec2 gap = clamp(clamp(f + 0.5 * ps, 0.0, 1.0) - 0.84, vec2(0.0), ps) / ps;
+        c = mix(c * (1.04 + f.x * f.y), c * 0.36, max(gap.x, gap.y));
+        c = clamp(pow(c, vec3(1.0 / 2.2)), 0.0, 1.0);
+    } else if (u_mode > 4.5) {
+        vec2 angle = (f - 0.25) * 6.283185307;
+        c *= (16.0 + sin(angle.y)) / 17.0 * (4.0 + sin(angle.x)) / 5.0;
     } else if (u_mode > 3.5) {
         c = pow(c, vec3(1.05));
         vec2 d = abs(f - 0.5);
@@ -100,7 +136,7 @@ void main() {
         }
         c = mix(c, mix(1.2 * c * mid, c * sum, 0.85), 0.85);
     } else if (u_mode > 1.5) {
-        vec2 hp = 0.5 * u_uv.zw * u_src / (u_rect.zw * u_fbo);
+        vec2 hp = 0.5 * ps;
         vec2 edge = (grid_band(f + hp) - grid_band(f - hp)) / (2.0 * hp);
         c *= 1.0 - 0.75 * max(edge.x, edge.y);
     } else if (u_mode > 0.5) {

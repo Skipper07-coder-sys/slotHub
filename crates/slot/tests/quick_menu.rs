@@ -274,11 +274,13 @@ fn each_platform_keeps_its_own_shader_wraps_and_starts_on_grid_and_simpletex() {
     );
     for (btn, want, shown) in [
         (Btn::Right, Shader::Dot, QuickValue::Dot),
-        (Btn::Right, Shader::Off, QuickValue::Off),
+        (Btn::Right, Shader::Lcd1x, QuickValue::Lcd1x),
         (Btn::Left, Shader::Dot, QuickValue::Dot),
         (Btn::Left, Shader::Grid, QuickValue::Grid),
         (Btn::Left, Shader::Lcd3x, QuickValue::Lcd3x),
         (Btn::Left, Shader::Off, QuickValue::Off),
+        (Btn::Left, Shader::Simpletex, QuickValue::Simpletex),
+        (Btn::Right, Shader::Off, QuickValue::Off),
     ] {
         press(&mut a, btn);
         assert_eq!(a.quick_value(QuickRow::GbaShader), Some(shown), "{btn:?}");
