@@ -654,14 +654,12 @@ impl RetroCore for LibretroCore {
     }
 
     fn unserialize(&mut self, data: &[u8]) -> Result<(), CoreError> {
-        // mGBA dereferences a short buffer instead of refusing it: an empty
+        // mGBA dereferences an empty buffer instead of refusing it: an empty
         // resume state left by a reset mid-write crashed it on every launch.
-        let size = unsafe { (self.api.serialize_size)() };
-        if data.is_empty() || data.len() < size {
-            return Err(CoreError::State(format!(
-                "state is {} bytes, the core needs {size}",
-                data.len()
-            )));
+        // Only emptiness is checked: mGBA's state size follows the game's
+        // save type, so a valid state can be smaller than `serialize_size`.
+        if data.is_empty() {
+            return Err(CoreError::State("state is empty".into()));
         }
         let ok = {
             let _a = Active::bind(&mut self.host);
