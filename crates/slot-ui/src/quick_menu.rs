@@ -16,6 +16,7 @@ pub enum QuickRow {
     GbaShader,
     GbShader,
     ColourCorrection,
+    PanelCalibration,
     Game,
     EjectSave,
     Turbo,
@@ -33,10 +34,11 @@ pub enum QuickRow {
     WifiDrive,
     WifiArt,
     Cheevos,
+    RunAhead,
 }
 
 impl QuickRow {
-    pub const ALL: [QuickRow; 26] = [
+    pub const ALL: [QuickRow; 28] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Screen,
@@ -46,6 +48,7 @@ impl QuickRow {
         QuickRow::GbaShader,
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::Game,
         QuickRow::EjectSave,
         QuickRow::Turbo,
@@ -63,6 +66,7 @@ impl QuickRow {
         QuickRow::WifiDrive,
         QuickRow::WifiArt,
         QuickRow::Cheevos,
+        QuickRow::RunAhead,
     ];
 
     pub const MAIN: [QuickRow; 7] = [
@@ -75,24 +79,33 @@ impl QuickRow {
         QuickRow::About,
     ];
 
-    pub const SCREEN: [QuickRow; 4] = [
+    pub const SCREEN: [QuickRow; 5] = [
         QuickRow::GbaShader,
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::GbPalettes,
     ];
 
-    pub const GAME: [QuickRow; 7] = [
+    pub const GAME: [QuickRow; 8] = [
         QuickRow::FastForward,
         QuickRow::FastForwardSound,
         QuickRow::Rewind,
+        QuickRow::RunAhead,
         QuickRow::Turbo,
         QuickRow::Rumble,
         QuickRow::EjectSave,
         QuickRow::Cheevos,
     ];
 
-    pub const GAME_PURE: [QuickRow; 3] = [QuickRow::Rumble, QuickRow::EjectSave, QuickRow::Cheevos];
+    /// Run-ahead stays in pure mode: it only hides input lag, and the state it saves
+    /// and reloads every frame is never one the player can return to.
+    pub const GAME_PURE: [QuickRow; 4] = [
+        QuickRow::RunAhead,
+        QuickRow::Rumble,
+        QuickRow::EjectSave,
+        QuickRow::Cheevos,
+    ];
 
     pub const BLUETOOTH: [QuickRow; 2] = [QuickRow::BtPower, QuickRow::BtHeadphones];
     pub const UPDATE: [QuickRow; 3] = [
@@ -134,6 +147,7 @@ impl QuickRow {
             QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::ColourCorrection
+            | QuickRow::PanelCalibration
             | QuickRow::GbPalettes => &QuickRow::SCREEN,
             QuickRow::BtPower | QuickRow::BtHeadphones => &QuickRow::BLUETOOTH,
             QuickRow::WifiPower | QuickRow::WifiNetwork | QuickRow::WifiDrive => &QuickRow::WIFI,
@@ -141,6 +155,7 @@ impl QuickRow {
             QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::Rewind
+            | QuickRow::RunAhead
             | QuickRow::Turbo
             | QuickRow::Rumble
             | QuickRow::EjectSave
@@ -207,6 +222,7 @@ impl QuickRow {
             QuickRow::GbaShader => "GBA Shader",
             QuickRow::GbShader => "GB / GBC Shader",
             QuickRow::ColourCorrection => "Color Correction",
+            QuickRow::PanelCalibration => "Panel Calibration",
             QuickRow::Game => "Gameplay",
             QuickRow::EjectSave => "Auto Save on Eject",
             QuickRow::Turbo => "Turbo Buttons",
@@ -222,6 +238,7 @@ impl QuickRow {
             QuickRow::SlotUpdate => "slot",
             QuickRow::BaseOsUpdate => "BaseOS",
             QuickRow::Cheevos => "RetroAchievements",
+            QuickRow::RunAhead => "Run-Ahead",
         }
     }
 
@@ -292,10 +309,11 @@ pub enum QuickValue {
     NotFound,
     NoAddress,
     Trouble,
+    Frames1,
 }
 
 impl QuickValue {
-    pub const ALL: [QuickValue; 27] = [
+    pub const ALL: [QuickValue; 28] = [
         QuickValue::Speed2,
         QuickValue::Speed3,
         QuickValue::Speed4,
@@ -323,6 +341,7 @@ impl QuickValue {
         QuickValue::NotFound,
         QuickValue::NoAddress,
         QuickValue::Trouble,
+        QuickValue::Frames1,
     ];
 
     pub fn index(self) -> usize {
@@ -358,6 +377,7 @@ impl QuickValue {
             QuickValue::NotFound => "Not Found",
             QuickValue::NoAddress => "No Address",
             QuickValue::Trouble => "Failed",
+            QuickValue::Frames1 => "1 Frame",
         }
     }
 
@@ -367,6 +387,14 @@ impl QuickValue {
             3 => Some(QuickValue::Speed3),
             4 => Some(QuickValue::Speed4),
             6 => Some(QuickValue::Speed6),
+            _ => None,
+        }
+    }
+
+    pub fn frames(frames: u8) -> Option<QuickValue> {
+        match frames {
+            0 => Some(QuickValue::Off),
+            1 => Some(QuickValue::Frames1),
             _ => None,
         }
     }
@@ -387,7 +415,7 @@ const BAR_INSET: f32 = 4.0;
 const TYPE_DROP: f32 = 4.0;
 const CARET_GAP: f32 = 14.0;
 const CARET_PX: f32 = 24.0;
-const LEGEND_Y: f32 = 427.0;
+pub(crate) const LEGEND_Y: f32 = 427.0;
 pub const QUICK_SPLIT: f32 = LEGEND_Y - 2.0;
 pub(crate) const DIM_INK: [u8; 3] = [0x9a, 0x9a, 0xa4];
 

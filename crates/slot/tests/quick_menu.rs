@@ -156,6 +156,24 @@ fn fast_forward_steps_through_its_speeds_wraps_at_both_ends_and_saves_each_one()
 }
 
 #[test]
+fn run_ahead_steps_through_its_frames_wraps_at_both_ends_and_saves_each_one() {
+    let (d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::RunAhead);
+    assert_eq!(a.quick_value(QuickRow::RunAhead), Some(QuickValue::Off));
+    for (btn, want) in [
+        (Btn::Right, 1),
+        (Btn::Right, 0),
+        (Btn::Left, 1),
+        (Btn::Left, 0),
+    ] {
+        press(&mut a, btn);
+        assert_eq!(a.runahead(), want, "{btn:?}");
+        assert_eq!(read_slot_state(d.path()).runahead, want, "not on the card");
+        assert_eq!(a.quick_value(QuickRow::RunAhead), QuickValue::frames(want));
+    }
+}
+
+#[test]
 fn rumble_and_fast_forward_sound_flip_on_either_arrow_and_save() {
     let (d, mut a, _) = on_carousel();
     let card = |d: &TempDir| {
@@ -171,9 +189,9 @@ fn rumble_and_fast_forward_sound_flip_on_either_arrow_and_save() {
     );
     press(&mut a, Btn::Right);
     assert_eq!(card(&d), (false, true));
-    press(&mut a, Btn::Down);
-    press(&mut a, Btn::Down);
-    press(&mut a, Btn::Down);
+    for _ in QuickRow::FastForwardSound.position()..QuickRow::Rumble.position() {
+        press(&mut a, Btn::Down);
+    }
     press(&mut a, Btn::Right);
     assert_eq!(card(&d), (false, false));
     assert!(!a.rumble_enabled());
@@ -215,6 +233,26 @@ fn colour_correction_flips_on_either_arrow_and_saves() {
 }
 
 #[test]
+fn panel_calibration_starts_on_and_flips_on_either_arrow_and_saves() {
+    let (d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::PanelCalibration);
+    assert!(a.panel_calibration(), "the panel table is off by default");
+    for (btn, want) in [(Btn::Left, false), (Btn::Right, true)] {
+        press(&mut a, btn);
+        assert_eq!(a.panel_calibration(), want, "{btn:?}");
+        assert_eq!(
+            read_slot_state(d.path()).panel_calibration,
+            want,
+            "{btn:?} never reached the card"
+        );
+        assert_eq!(
+            a.quick_value(QuickRow::PanelCalibration),
+            Some(QuickValue::flag(want))
+        );
+    }
+}
+
+#[test]
 fn the_game_page_flips_eject_save_turbo_and_rewind_and_saves_each() {
     let (d, mut a, _) = on_carousel();
     open_at(&mut a, QuickRow::Rewind);
@@ -226,6 +264,7 @@ fn the_game_page_flips_eject_save_turbo_and_rewind_and_saves_each() {
     press(&mut a, Btn::Right);
     assert_eq!(card(&d), (true, true, false));
     assert!(!a.may_rewind(), "rewind still offered with it off");
+    press(&mut a, Btn::Down);
     press(&mut a, Btn::Down);
     press(&mut a, Btn::Left);
     assert_eq!(card(&d), (true, false, false));
@@ -247,6 +286,7 @@ fn screen_opens_a_page_of_its_own_and_b_comes_back_to_it() {
     for want in [
         QuickRow::GbShader,
         QuickRow::ColourCorrection,
+        QuickRow::PanelCalibration,
         QuickRow::GbPalettes,
         QuickRow::GbaShader,
     ] {
@@ -339,6 +379,47 @@ fn a_on_about_opens_the_label_and_b_comes_back_to_the_menu() {
     assert!(matches!(a.phase(), Phase::About), "{:?}", a.phase());
     press(&mut a, Btn::B);
     assert_eq!(a.quick_menu(), Some(QuickRow::About));
+}
+
+#[test]
+fn a_on_the_label_opens_the_button_cheat_sheet_and_b_comes_back_to_the_label() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::About);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::A);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page: 0 }),
+        "{:?}",
+        a.phase()
+    );
+    press(&mut a, Btn::B);
+    assert!(matches!(a.phase(), Phase::About), "{:?}", a.phase());
+    press(&mut a, Btn::B);
+    assert_eq!(a.quick_menu(), Some(QuickRow::About));
+}
+
+#[test]
+fn the_cheat_sheet_pages_turn_both_ways_and_wrap() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::About);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::A);
+    let pages = slot_ui::cheat_pages(false).len();
+    press(&mut a, Btn::Left);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page } if *page == pages - 1),
+        "left from the first page did not wrap to the last: {:?}",
+        a.phase()
+    );
+    press(&mut a, Btn::R1);
+    press(&mut a, Btn::Right);
+    assert!(
+        matches!(a.phase(), Phase::CheatSheet { page: 1 }),
+        "{:?}",
+        a.phase()
+    );
+    a.apply(Action::QuickMenu);
+    assert!(matches!(a.phase(), Phase::About), "{:?}", a.phase());
 }
 
 #[test]

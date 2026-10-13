@@ -6,10 +6,12 @@ mod battery;
 mod board;
 mod bt_setup;
 mod cart;
+mod cheat_sheet;
 mod cheevo_popup;
 mod cheevos_setup;
 mod clock;
 mod draw;
+mod favorite;
 mod footer;
 mod hud;
 mod icon;
@@ -50,10 +52,15 @@ pub use cart::{
     CartFace, CART_H, CART_W, GB_CART_H, GB_CART_W, GB_LABEL_H, GB_LABEL_W, GB_LABEL_X, GB_LABEL_Y,
     LABEL_H, LABEL_W, LABEL_X, LABEL_Y,
 };
+pub use cheat_sheet::{
+    cheat_last_row_mid, cheat_legend_faces, cheat_pages, cheat_sheet_face, cheat_width,
+    draw_cheat_sheet, draw_legend, CheatPage, CHEAT_DESC_X, CHEAT_TEXT_PX,
+};
 pub use cheevo_popup::{cheevo_face, Cheevo, CheevoPopup, CHEEVO_H, CHEEVO_SHOW_MS, CHEEVO_W};
 pub use cheevos_setup::{CheevosOutcome, CheevosSetup};
 pub use clock::{clock_label, date_time_text, hhmm, set_clock_hint_face, ClockPicker, Field};
 pub use draw::{Draw, TexId, OUT_H, OUT_W};
+pub use favorite::{favorite_face, favorite_heart_face, FAVORITE_D, FAVORITE_FILE, FAVORITE_PX};
 pub use footer::{draw_footer, draw_footer_radios, Printed};
 pub use hud::{
     badge_at, ff_badge, FfState, Hud, HudKind, LinkBadge, Millis, ALARM_BAND_H, HUD_ICON_PX,
@@ -63,8 +70,8 @@ pub use icon::{badge_face, icon_box, icon_face, warm_fonts, Badge, Icon};
 pub use keyboard::{KeyPress, Keyboard};
 pub use link_art::{
     link_art, LinkArt, ADAPTER_BASE_X, ADAPTER_BASE_Y, ADAPTER_H, ADAPTER_W, ARCS, ARROW_H,
-    ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, PLUG_H,
-    PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
+    ARROW_LEFT_X, ARROW_RIGHT_X, ARROW_W, ARROW_Y, CLICKS_H, CLICKS_W, CLICKS_X, CLICKS_Y, NET_H,
+    NET_W, NET_X, NET_Y, PLUG_H, PLUG_TIP_X, PLUG_W, PORT_H, PORT_W, PORT_Y,
 };
 pub use plate::{
     arrows_hint_face, arrows_hint_width, cap_width, centred_hints, hint_face, hint_quad, hint_row,

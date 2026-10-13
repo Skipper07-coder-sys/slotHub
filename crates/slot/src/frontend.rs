@@ -7,13 +7,13 @@ use slot_power::{Platform, Power};
 use slot_store::format_stamp;
 use slot_ui::{
     arrows_hint_face, badge_face, bezel_face, cart_shadow, chip_face, chip_shadow_face,
-    gb_cart_shadow, hhmm, hint_face, icon_face, marquee_shift, menu_face, photo_face,
-    quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face, quick_value_face_in,
-    rail_glyph_face, rate_face, rate_text, rebuild_count_face, rebuild_title_face,
-    set_clock_hint_face, socket_face, status_icon_face, sticker_face, title_face, title_strip,
-    title_window, toast_face, wallpaper_face, word_face, CartFace, GbShell, Icon, LinkBadge,
-    PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen, StatusIcon, StickerFields,
-    Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
+    favorite_face, gb_cart_shadow, hhmm, hint_face, icon_face, marquee_shift, menu_face,
+    photo_face, quick_caret_face, quick_label_face, quick_legend_faces, quick_value_face,
+    quick_value_face_in, rail_glyph_face, rate_face, rate_text, rebuild_count_face,
+    rebuild_title_face, set_clock_hint_face, socket_face, status_icon_face, sticker_face,
+    title_face, title_strip, title_window, toast_face, wallpaper_face, word_face, CartFace,
+    GbShell, Icon, LinkBadge, PowerChoice, QuickMenuFaces, QuickRow, QuickValue, RebuildScreen,
+    StatusIcon, StickerFields, Toast, UndoFace, ALERT_PX, BOLT_PX, HUD_ICON_PX, HUD_INK, LEGEND,
 };
 
 use crate::app::{App, LinkRow, Phase};
@@ -54,6 +54,7 @@ pub struct Frontend {
     switcher: Switcher,
     clocks: Clocks,
     about: AboutFace,
+    cheat_sheet: CheatSheetFace,
     quick_live: Vec<QuickLive>,
     ticker: TickerFace,
     status_rate: StatusRate,
@@ -143,6 +144,12 @@ struct StatusRate {
 }
 
 #[derive(Default)]
+struct CheatSheetFace {
+    tex: Option<TexId>,
+    page: Option<usize>,
+}
+
+#[derive(Default)]
 struct AboutFace {
     tex: Option<TexId>,
     battery: Option<u8>,
@@ -206,6 +213,7 @@ impl Frontend {
             clocks: Clocks::default(),
             shelf_index: ShelfIndexFaces::default(),
             about: AboutFace::default(),
+            cheat_sheet: CheatSheetFace::default(),
             quick_live: QuickRow::LIVE
                 .iter()
                 .map(|_| QuickLive::default())
@@ -270,6 +278,9 @@ impl Frontend {
         let bolt = icon_face(Icon::Charging, BOLT_PX, HUD_INK);
         let bolt_id = compositor.create_texture(bolt.w, bolt.h, &bolt.rgba);
         self.session.app_mut().set_bolt_face(bolt_id);
+        let favorite = favorite_face(self.session.app().root());
+        let favorite = compositor.create_texture(favorite.w, favorite.h, &favorite.rgba);
+        self.session.app_mut().set_favorite_face(favorite);
         crate::boot_time::mark("shelf faces");
         self.upload_wallpaper(compositor);
     }
@@ -316,6 +327,10 @@ impl Frontend {
             let (tex, w, _) = up(f);
             (tex, w)
         });
+        let cheat_legend = faces.cheat_legend.map(|f| {
+            let (tex, w, _) = up(f);
+            (tex, w)
+        });
         let core_legend = faces
             .core_legend
             .into_iter()
@@ -349,6 +364,7 @@ impl Frontend {
         app.set_status_faces(status);
         app.set_core_part_faces(sockets, chips, blank, shadow);
         app.set_core_legend_faces(core_legend);
+        app.set_cheat_legend_faces(cheat_legend);
         app.set_link_menu_faces(roles);
         app.set_link_linked_face(linked);
         app.set_link_legend_faces(link_legend);
@@ -398,6 +414,7 @@ impl Frontend {
 
     pub fn compose(&mut self, compositor: &mut Compositor) {
         compositor.set_blue_light(self.session.app().blue_light());
+        compositor.set_panel_calibration(self.session.app().panel_calibration());
         compositor.set_picture(self.session.app().picture_rect());
         compositor.set_screen_effect(match self.session.app().screen_shader() {
             slot_store::Shader::Off => ScreenEffect::None,
@@ -432,6 +449,7 @@ impl Frontend {
         sync_clock(self.session.app_mut(), compositor, &mut self.clocks);
         sync_shelf_index(self.session.app_mut(), compositor, &mut self.shelf_index);
         sync_about(self.session.app_mut(), compositor, &mut self.about);
+        sync_cheat_sheet(self.session.app_mut(), compositor, &mut self.cheat_sheet);
         sync_quick_live(self.session.app_mut(), compositor, &mut self.quick_live);
         sync_ticker(self.session.app_mut(), compositor, &mut self.ticker);
         sync_status_rate(self.session.app_mut(), compositor, &mut self.status_rate);
@@ -473,6 +491,8 @@ impl Frontend {
                     clicks: up(&art.clicks),
                     arrow_left: up(&art.arrow_left),
                     arrow_right: up(&art.arrow_right),
+                    net_home: up(&art.net_home),
+                    net_direct: up(&art.net_direct),
                 };
                 self.session.app_mut().set_link_sprites(sprites);
                 self.link_art_done = true;
@@ -640,6 +660,7 @@ struct UiFaces {
     quick_values: Vec<[UndoFace; 2]>,
     quick_carets: [UndoFace; 2],
     quick_legend: [UndoFace; 4],
+    cheat_legend: [UndoFace; 3],
     status_icons: Vec<[UndoFace; 2]>,
     sockets: Vec<CartFace>,
     chips: Vec<CartFace>,
@@ -687,6 +708,7 @@ impl UiFaces {
                 .collect(),
             quick_carets: [false, true].map(quick_caret_face),
             quick_legend: quick_legend_faces(),
+            cheat_legend: slot_ui::cheat_legend_faces(),
             status_icons: StatusIcon::ALL
                 .iter()
                 .map(|i| [false, true].map(|lit| status_icon_face(*i, lit)))
@@ -706,7 +728,12 @@ impl UiFaces {
                 arrows_hint_face("Swap"),
                 hint_face("A", "Choose"),
             ],
-            link_roles: LinkRow::ALL.iter().map(|r| menu_face(r.text())).collect(),
+            link_roles: LinkRow::ALL
+                .iter()
+                .map(|r| r.text())
+                .chain(["Home Wi-Fi", "Direct"])
+                .map(menu_face)
+                .collect(),
             linked: menu_face("Linked"),
             link_legend: vec![
                 hint_face("B", "Cancel"),
@@ -716,6 +743,7 @@ impl UiFaces {
                 hint_face("A", "OK"),
                 hint_face("B", "Back"),
                 hint_face("A", "End Link"),
+                hint_face("A", "Next"),
             ],
             link_steps: LinkStep::ALL.iter().map(|s| menu_face(s.line())).collect(),
             link_fails: LinkFail::SHOWN
@@ -978,6 +1006,22 @@ fn sync_status_rate(app: &mut App, compositor: &mut Compositor, state: &mut Stat
     state.shown = Some(text);
 }
 
+fn sync_cheat_sheet(app: &mut App, compositor: &mut Compositor, state: &mut CheatSheetFace) {
+    let Phase::CheatSheet { page } = *app.phase() else {
+        return;
+    };
+    if state.tex.is_some() && state.page == Some(page) {
+        return;
+    }
+    state.page = Some(page);
+    let id = upload(
+        compositor,
+        &mut state.tex,
+        slot_ui::cheat_sheet_face(page, app.pure()),
+    );
+    app.set_cheat_sheet_face(id);
+}
+
 fn sync_about(app: &mut App, compositor: &mut Compositor, state: &mut AboutFace) {
     if !matches!(app.phase(), Phase::About) {
         return;
@@ -1008,10 +1052,7 @@ fn sync_core_picker(
 ) {
     let highlighted = app.selected_stem().map(str::to_string);
     if highlighted.is_some() && *asked != highlighted {
-        if let Some(cart) = app
-            .carts()
-            .find(|c| highlighted.as_deref() == Some(c.stem.as_str()))
-        {
+        if let Some(cart) = app.selected_cart() {
             builder.request(cart.clone());
         }
         *asked = highlighted.clone();

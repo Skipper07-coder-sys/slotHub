@@ -15,6 +15,8 @@ pub const FF_SPEEDS: [u8; 4] = [2, 3, 4, 6];
 
 pub const FF_SPEED_DEFAULT: u8 = 6;
 
+pub const RUN_AHEAD_MAX: u8 = 1;
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SlotState {
     pub cart: Option<String>,
@@ -35,11 +37,15 @@ pub struct SlotState {
     pub ff_speed: u8,
     pub ff_sound: bool,
     pub colour_correction: bool,
+    /// The panel's measured white point and gamma table, set in the display
+    /// hardware (RG34XXSP and RG SP only).
+    pub panel_calibration: bool,
     pub shader_gba: Shader,
     pub shader_gb: Shader,
     pub eject_save: bool,
     pub turbo: bool,
     pub rewind: bool,
+    pub runahead: u8,
     pub gb_palettes: bool,
     pub gb_palette: GbPalette,
     pub bluetooth: bool,
@@ -148,11 +154,13 @@ impl Default for SlotState {
             ff_speed: FF_SPEED_DEFAULT,
             ff_sound: false,
             colour_correction: false,
+            panel_calibration: true,
             shader_gba: Shader::Grid,
             shader_gb: Shader::Grid,
             eject_save: true,
             turbo: true,
             rewind: true,
+            runahead: 0,
             gb_palettes: false,
             gb_palette: GbPalette::DEFAULT,
             bluetooth: false,
@@ -175,7 +183,7 @@ pub fn read_slot_state(root: &Path) -> SlotState {
 
 pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
     let text = format!(
-        "cart={}\ncart_platform={}\nlast_cart={}\nlast_cart_platform={}\nbrightness={}\nblue_light={}\nvolume={}\nvolume_hp={}\nmuted={}\nmuted_hp={}\nclock_set={}\nutc_offset_min={}\nrumble={}\nff_speed={}\nff_sound={}\ncolour_correction={}\nshader_gba={}\nshader_gb={}\neject_save={}\nturbo={}\nrewind={}\ngb_palettes={}\ngb_palette={}\nbluetooth={}\nwifi={}\n",
+        "cart={}\ncart_platform={}\nlast_cart={}\nlast_cart_platform={}\nbrightness={}\nblue_light={}\nvolume={}\nvolume_hp={}\nmuted={}\nmuted_hp={}\nclock_set={}\nutc_offset_min={}\nrumble={}\nff_speed={}\nff_sound={}\ncolour_correction={}\npanel_calibration={}\nshader_gba={}\nshader_gb={}\neject_save={}\nturbo={}\nrewind={}\nrunahead={}\ngb_palettes={}\ngb_palette={}\nbluetooth={}\nwifi={}\n",
         s.cart.as_deref().unwrap_or(""),
         s.cart_platform.map_or(String::new(), platform_key),
         s.last_cart.as_deref().unwrap_or(""),
@@ -192,11 +200,13 @@ pub fn write_slot_state(root: &Path, s: &SlotState) -> std::io::Result<()> {
         s.ff_speed,
         s.ff_sound as u8,
         s.colour_correction as u8,
+        s.panel_calibration as u8,
         s.shader_gba.name(),
         s.shader_gb.name(),
         s.eject_save as u8,
         s.turbo as u8,
         s.rewind as u8,
+        s.runahead,
         s.gb_palettes as u8,
         s.gb_palette.core_name(),
         s.bluetooth as u8,
@@ -222,11 +232,13 @@ fn parse(text: &str) -> Option<SlotState> {
     let mut ff_speed = None;
     let mut ff_sound = None;
     let mut colour_correction = None;
+    let mut panel_calibration = None;
     let mut shader_gba = None;
     let mut shader_gb = None;
     let mut eject_save = None;
     let mut turbo = None;
     let mut rewind = None;
+    let mut runahead = None;
     let mut gb_palettes = None;
     let mut gb_palette = None;
     let mut bluetooth = None;
@@ -252,10 +264,12 @@ fn parse(text: &str) -> Option<SlotState> {
             "ff_speed" => ff_speed = ff_speed_value(value),
             "ff_sound" => ff_sound = flag(value),
             "colour_correction" => colour_correction = flag(value),
+            "panel_calibration" => panel_calibration = flag(value),
             "shader_gba" => shader_gba = Shader::parse(value).filter(|s| Shader::GBA.contains(s)),
             "eject_save" => eject_save = flag(value),
             "turbo" => turbo = flag(value),
             "rewind" => rewind = flag(value),
+            "runahead" => runahead = level(value, RUN_AHEAD_MAX),
             "gb_palettes" => gb_palettes = flag(value),
             "gb_palette" => gb_palette = GbPalette::parse(value),
             "bluetooth" => bluetooth = flag(value),
@@ -283,11 +297,13 @@ fn parse(text: &str) -> Option<SlotState> {
         ff_speed: ff_speed.unwrap_or(fallback.ff_speed),
         ff_sound: ff_sound.unwrap_or(fallback.ff_sound),
         colour_correction: colour_correction.unwrap_or(fallback.colour_correction),
+        panel_calibration: panel_calibration.unwrap_or(fallback.panel_calibration),
         shader_gba: shader_gba.unwrap_or(fallback.shader_gba),
         shader_gb: shader_gb.unwrap_or(fallback.shader_gb),
         eject_save: eject_save.unwrap_or(fallback.eject_save),
         turbo: turbo.unwrap_or(fallback.turbo),
         rewind: rewind.unwrap_or(fallback.rewind),
+        runahead: runahead.unwrap_or(fallback.runahead),
         gb_palettes: gb_palettes.unwrap_or(fallback.gb_palettes),
         gb_palette: gb_palette.unwrap_or(fallback.gb_palette),
         bluetooth: bluetooth.unwrap_or(fallback.bluetooth),

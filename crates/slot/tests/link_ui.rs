@@ -749,6 +749,8 @@ fn fake_link_sprites() -> slot::link_screen::LinkSprites {
         clicks: s(13),
         arrow_left: s(14),
         arrow_right: s(15),
+        net_home: s(16),
+        net_direct: s(17),
     }
 }
 
@@ -1217,6 +1219,7 @@ fn pick_names_cancel_mode_swap_and_link_across_the_strip() {
         LinkLegend::Ok => hint_face("A", "OK").w,
         LinkLegend::Back => hint_face("B", "Back").w,
         LinkLegend::EndLink => hint_face("A", "End Link").w,
+        LinkLegend::Next => hint_face("A", "Next").w,
     };
     let faces: Vec<(TexId, u32)> = LinkLegend::ALL
         .iter()
@@ -1660,4 +1663,86 @@ fn the_shortcut_still_opens_the_screen_when_nothing_is_linked() {
     app.apply(Action::GameMenu);
     assert!(app.game_menu_open());
     assert_eq!(app.toast(), None);
+}
+
+#[derive(Clone)]
+struct OnlineWifi;
+
+impl slot::wifi::WifiJobs for OnlineWifi {
+    fn ask(&mut self, _job: slot::wifi::WifiJob) {}
+
+    fn state(&self) -> slot::wifi::WifiState {
+        slot::wifi::WifiState::Online
+    }
+
+    fn scan(&mut self) {}
+
+    fn scanned(&self) -> Option<Vec<slot_ui::WifiNetwork>> {
+        Some(Vec::new())
+    }
+}
+
+/// `playing_on`, with home Wi-Fi on and connected.
+fn playing_online(core: Core) -> (App, TempDir) {
+    let d = common::tmp_root_with_carts(&["Emerald", "Zzz"]);
+    common::write_retail_header(&d, "Emerald", "POKEMON RUBY", "AXVE");
+    write_slot_state(
+        d.path(),
+        &SlotState {
+            wifi: true,
+            ..SlotState::default()
+        },
+    )
+    .expect("write slot.state");
+    let mut app = common::boot(d.path());
+    app.set_wifi_jobs(Box::new(OnlineWifi));
+    app.apply(Action::Insert);
+    app.set_core(core);
+    app.on_core_ready();
+    for _ in 0..120 {
+        app.update(1.0 / 60.0);
+    }
+    assert!(matches!(app.phase(), Phase::Playing { .. }), "never seated");
+    (app, d)
+}
+
+#[test]
+fn with_home_wifi_the_network_is_picked_before_host_or_join() {
+    let (mut app, _d) = playing_online(Core::Gpsp);
+    app.apply(Action::GameMenu);
+    assert_eq!(
+        app.game_menu(),
+        Some(GameMenu::Network {
+            home: true,
+            role: LinkRow::Host
+        })
+    );
+    app.apply(Action::GbaDown(Btn::Right));
+    assert_eq!(
+        app.game_menu(),
+        Some(GameMenu::Network {
+            home: false,
+            role: LinkRow::Host
+        })
+    );
+    app.apply(Action::GbaDown(Btn::A));
+    assert_eq!(app.game_menu(), Some(GameMenu::Pick(LinkRow::Host)));
+    app.apply(Action::GbaDown(Btn::B));
+    assert_eq!(
+        app.game_menu(),
+        Some(GameMenu::Network {
+            home: false,
+            role: LinkRow::Host
+        }),
+        "B on Host or Join goes back to the network, which remembers the pick"
+    );
+    app.apply(Action::GbaDown(Btn::B));
+    assert_eq!(app.game_menu(), None);
+}
+
+#[test]
+fn without_home_wifi_the_picker_opens_on_host_or_join() {
+    let (mut app, _d) = playing_on(Core::Gpsp);
+    app.apply(Action::GameMenu);
+    assert_eq!(app.game_menu(), Some(GameMenu::Pick(LinkRow::Host)));
 }

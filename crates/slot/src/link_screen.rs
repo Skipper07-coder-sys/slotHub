@@ -1,6 +1,6 @@
 use slot_ui::{
     ease, Draw, Millis, TexId, ADAPTER_BASE_X, ADAPTER_BASE_Y, ARCS, ARROW_LEFT_X, ARROW_RIGHT_X,
-    ARROW_Y, CLICKS_X, CLICKS_Y, OUT_W, PLUG_H, PLUG_TIP_X, PORT_Y,
+    ARROW_Y, CLICKS_X, CLICKS_Y, NET_X, NET_Y, OUT_W, PLUG_H, PLUG_TIP_X, PORT_Y,
 };
 
 use crate::app::{GameMenu, LinkRow};
@@ -24,6 +24,9 @@ pub struct LinkSprites {
     pub clicks: Sprite,
     pub arrow_left: Sprite,
     pub arrow_right: Sprite,
+    /// The printed plate for a link over the home network, and for the private one.
+    pub net_home: Sprite,
+    pub net_direct: Sprite,
 }
 
 const PICK_TIP: f32 = 330.0;
@@ -39,6 +42,8 @@ const PICK_BASE: f32 = 336.0;
 const ARC_MS: f32 = 1200.0;
 const ARC_STAGGER_MS: f32 = 300.0;
 const ARROW_ALPHA: f32 = 0.7;
+/// Printed, not lit: a little under the arrows' own weight, since it tells rather than asks.
+const NET_ALPHA: f32 = 0.85;
 
 fn lerp(a: f32, b: f32, t: f32) -> f32 {
     if t >= 1.0 {
@@ -78,7 +83,7 @@ fn working_arcs(since: Millis, now: Millis) -> [f32; 3] {
 
 pub fn plug_tip(menu: GameMenu, now: Millis) -> f32 {
     match menu {
-        GameMenu::Pick(_) => PICK_TIP,
+        GameMenu::Network { .. } | GameMenu::Pick(_) => PICK_TIP,
         GameMenu::Working { since, .. } => working_tip(since, now),
         GameMenu::Linked { worked, since, .. } => lerp(
             working_tip(worked, since),
@@ -110,7 +115,7 @@ pub fn art_alpha(menu: GameMenu, now: Millis) -> f32 {
 
 pub fn adapter_base(menu: GameMenu, now: Millis) -> f32 {
     match menu {
-        GameMenu::Pick(_) => PICK_BASE,
+        GameMenu::Network { .. } | GameMenu::Pick(_) => PICK_BASE,
         GameMenu::Working { since, .. } => working_base(since, now),
         GameMenu::Linked { worked, since, .. } => lerp(
             working_base(worked, since),
@@ -124,7 +129,7 @@ pub fn adapter_base(menu: GameMenu, now: Millis) -> f32 {
 
 pub fn arc_alphas(menu: GameMenu, now: Millis) -> [f32; 3] {
     match menu {
-        GameMenu::Pick(_) => [0.0; 3],
+        GameMenu::Network { .. } | GameMenu::Pick(_) => [0.0; 3],
         GameMenu::Working { since, .. } => working_arcs(since, now),
         GameMenu::Linked { worked, since, .. } => {
             let from = working_arcs(worked, since);
@@ -156,7 +161,8 @@ pub fn clicks_alpha(menu: GameMenu, now: Millis) -> f32 {
 
 fn role_of(menu: GameMenu) -> LinkRow {
     match menu {
-        GameMenu::Pick(role)
+        GameMenu::Network { role, .. }
+        | GameMenu::Pick(role)
         | GameMenu::Working { role, .. }
         | GameMenu::Linked { role, .. }
         | GameMenu::Failed { role, .. }
@@ -231,8 +237,27 @@ pub fn draw_link_art(
             }
         }
     }
-    if matches!(menu, GameMenu::Pick(_)) {
+    if matches!(menu, GameMenu::Network { .. } | GameMenu::Pick(_)) {
         tex(out, s.arrow_left, ARROW_LEFT_X, ARROW_Y, ARROW_ALPHA);
         tex(out, s.arrow_right, ARROW_RIGHT_X, ARROW_Y, ARROW_ALPHA);
     }
+}
+
+/// The plate on the console that says which network the link uses: the one highlighted on the
+/// network step, then the one picked there while Host or Join is chosen. `home` is the picked
+/// one; the network step shows its own. Drawn over the console strip after the art, and quiet:
+/// no motion, since nothing about the network moves.
+pub fn draw_network_label(menu: GameMenu, home: bool, s: &LinkSprites, out: &mut Vec<Draw>) {
+    let home = match menu {
+        GameMenu::Network { home, .. } => home,
+        GameMenu::Pick(_) => home,
+        _ => return,
+    };
+    tex(
+        out,
+        if home { s.net_home } else { s.net_direct },
+        NET_X,
+        NET_Y,
+        NET_ALPHA,
+    );
 }

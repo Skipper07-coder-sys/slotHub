@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use libloading::Library;
 
+use super::pacer::Pacer;
 use super::ring::Ring;
 use super::route;
 use super::silence::Silence;
@@ -256,6 +257,7 @@ impl Playback {
         let mut buf = vec![0i16; PERIOD_FRAMES * CHANNELS as usize];
         let span = Duration::from_secs_f64(PERIOD_FRAMES as f64 / self.rate as f64);
         let mut silence = Silence::new(RELEASE_AFTER);
+        let mut pace = Pacer::new(span);
         while !stop.load(Ordering::Relaxed) {
             ring.fill(&mut buf);
             // Closing the PCM over Bluetooth ends the A2DP stream (this
@@ -286,6 +288,7 @@ impl Playback {
             }
             match self.pcm {
                 Some(pcm) => {
+                    pace.reset();
                     if !self.write(pcm, &buf) {
                         if !route::on_bluetooth() {
                             return;
@@ -294,7 +297,7 @@ impl Playback {
                         self.release();
                     }
                 }
-                None => std::thread::sleep(span),
+                None => std::thread::sleep(pace.wait(Instant::now())),
             }
         }
     }

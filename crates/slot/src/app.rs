@@ -8,19 +8,19 @@ use slot_input::{Action, Btn, MUTE_CHORD_MS};
 use slot_power::{Battery, Charge, CpuMode, LedState, LidPolicy, Power};
 use slot_retro::LinkChannel;
 use slot_store::{
-    format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Core, GbPalette,
-    Platform, Shader, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX, BRIGHTNESS_MAX,
-    FF_SPEEDS, RING_MAX, VOLUME_MAX,
+    format_stamp, read_pure, read_slot_state, scan, write_slot_state, Cart, Collections, Core,
+    GbPalette, Platform, Shader, SlotState, StateEntry, StateRing, Theme, BLUE_LIGHT_MAX,
+    BRIGHTNESS_MAX, FF_SPEEDS, RING_MAX, RUN_AHEAD_MAX, VOLUME_MAX,
 };
 use slot_ui::{
-    board_from, board_zoom, draw_backdrop, draw_empty_slot, draw_footer, draw_slot_name,
-    draw_sticker, ease, grown, lid_at, lid_from, lift_of, on_board, shelf_cart_at, BtOutcome,
-    BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup, ClockPicker, Draw, FfState,
-    GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed, Polaroids, PowerChoice,
-    QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey, SetupOutcome, Shelf,
-    SlotChrome, StatusBar, StatusIcon, TexId, Ticker, Toast, WifiSetup, BOARD_W, BOARD_X, CART_W,
-    CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT, SHADOW_H, SHADOW_W, SOCKET_H,
-    SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
+    board_from, board_zoom, cheat_pages, draw_backdrop, draw_cheat_sheet, draw_empty_slot,
+    draw_footer, draw_legend, draw_slot_name, draw_sticker, ease, grown, lid_at, lid_from, lift_of,
+    on_board, shelf_cart_at, BtOutcome, BtSetup, Cheevo, CheevoPopup, CheevosOutcome, CheevosSetup,
+    ClockPicker, Draw, FfState, GbShell, Hud, HudKind, Icon, LinkBadge, LiveFaces, Millis, Placed,
+    Polaroids, PowerChoice, QuickMenu, QuickMenuFaces, QuickRow, QuickValue, Refusal, SetupKey,
+    SetupOutcome, Shelf, SlotChrome, StatusBar, StatusIcon, TexId, Ticker, Toast, WifiSetup,
+    BOARD_W, BOARD_X, CART_W, CHIP_H, CHIP_U, CHIP_V, CHIP_W, HINT_EDGE, HINT_H, HOP_LIFT,
+    SHADOW_H, SHADOW_W, SOCKET_H, SOCKET_U, SOCKET_V, SOCKET_W, TURN_PAD,
 };
 
 use crate::art::{art_jobs, ArtJobs};
@@ -60,6 +60,10 @@ const CARD_CHECK_MS: Millis = 2_000;
 const DRIVE_LOOK_MS: Millis = 3_000;
 
 const BATTERY_CRITICAL: u8 = 5;
+
+/// Each level warns once on the way down; a charger brings them back.
+/// Adapted from marghost/slot_modded (GPL-3.0).
+const BATTERY_WARNINGS: [(u8, Toast); 2] = [(15, Toast::BatteryLow15), (10, Toast::BatteryLow10)];
 
 const BATTERY_POLL_MS: Millis = 10_000;
 
@@ -141,6 +145,12 @@ struct Reload {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GameMenu {
+    /// The first step when home Wi-Fi is connected: link over it, or over the handhelds' own
+    /// direct network. `role` is the one the next step will open on.
+    Network {
+        home: bool,
+        role: LinkRow,
+    },
     Pick(LinkRow),
     Working {
         role: LinkRow,
@@ -224,10 +234,11 @@ pub enum LinkLegend {
     Ok,
     Back,
     EndLink,
+    Next,
 }
 
 impl LinkLegend {
-    pub const ALL: [LinkLegend; 7] = [
+    pub const ALL: [LinkLegend; 8] = [
         LinkLegend::Cancel,
         LinkLegend::Mode,
         LinkLegend::Swap,
@@ -235,6 +246,7 @@ impl LinkLegend {
         LinkLegend::Ok,
         LinkLegend::Back,
         LinkLegend::EndLink,
+        LinkLegend::Next,
     ];
 
     pub fn index(self) -> usize {
@@ -275,6 +287,9 @@ pub enum Phase {
         cart: String,
     },
     About,
+    CheatSheet {
+        page: usize,
+    },
     Doze {
         cart: Option<String>,
     },
@@ -291,7 +306,9 @@ pub enum Phase {
 
 pub struct App {
     phase: Phase,
-    shelves: Vec<(Platform, Shelf)>,
+    shelves: Vec<(ShelfKind, Shelf)>,
+    collections: Collections,
+    collections_writable: bool,
     shelf_at: usize,
     play_held: Option<Millis>,
     refusal: Option<Refusal>,
@@ -313,6 +330,8 @@ pub struct App {
     link_sprites: Option<LinkSprites>,
     link_hardware: LinkKind,
     last_role: LinkRow,
+    /// The network picked for the link: home Wi-Fi, or the direct one.
+    link_home: bool,
     link_choices: HashMap<String, LinkKind>,
     link_loaded: Option<&'static str>,
     link_reload: Option<(String, &'static str)>,
@@ -354,6 +373,8 @@ pub struct App {
     net: NetMeter,
     net_at: Millis,
     sticker_face: Option<TexId>,
+    cheat_sheet_face: Option<TexId>,
+    cheat_legend_faces: Option<[(TexId, u32); 3]>,
     wallpaper: Option<TexId>,
     battery_percent: slot_ui::Printed,
     bolt: Option<TexId>,
@@ -397,6 +418,7 @@ pub struct App {
     jack: bool,
     bt_connected: bool,
     battery: Option<Battery>,
+    battery_warned: Option<u8>,
     last_led: Option<LedState>,
     powering_off: bool,
     radio: Box<dyn RadioJobs>,
@@ -431,6 +453,30 @@ pub struct App {
     state_writer: crate::state_writer::StateWriter,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ShelfKind {
+    Platform(Platform),
+    Favorites,
+    Recents,
+}
+
+impl ShelfKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            ShelfKind::Platform(p) => p.name(),
+            ShelfKind::Favorites => "Favorites",
+            ShelfKind::Recents => "Recents",
+        }
+    }
+
+    fn platform(self) -> Option<Platform> {
+        match self {
+            ShelfKind::Platform(p) => Some(p),
+            _ => None,
+        }
+    }
+}
+
 const FACE_AHEAD: i32 = 8;
 const FACE_KEEP: i32 = 12;
 
@@ -441,7 +487,7 @@ pub struct FaceWant {
     pub on_screen: bool,
 }
 
-fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
+fn shelves_of(carts: Vec<Cart>) -> Vec<(ShelfKind, Shelf)> {
     let mut rows: Vec<(Platform, Vec<Cart>)> =
         Platform::ALL.iter().map(|p| (*p, Vec::new())).collect();
     for cart in carts {
@@ -450,7 +496,8 @@ fn shelves_of(carts: Vec<Cart>) -> Vec<(Platform, Shelf)> {
         }
     }
     rows.into_iter()
-        .map(|(platform, carts)| (platform, Shelf::new(carts)))
+        .map(|(platform, carts)| (ShelfKind::Platform(platform), Shelf::new(carts)))
+        .chain([ShelfKind::Favorites, ShelfKind::Recents].map(|k| (k, Shelf::new(Vec::new()))))
         .collect()
 }
 
@@ -490,6 +537,8 @@ impl App {
             state_writer,
             phase: Phase::Shelf,
             shelves,
+            collections: Collections::default(),
+            collections_writable: true,
             shelf_at,
             play_held: None,
             refusal: None,
@@ -511,6 +560,7 @@ impl App {
             link_sprites: None,
             link_hardware: LinkKind::Cable,
             last_role: LinkRow::Host,
+            link_home: true,
             link_choices: HashMap::new(),
             link_loaded: None,
             link_reload: None,
@@ -552,6 +602,8 @@ impl App {
             net: NetMeter::system(),
             net_at: 0,
             sticker_face: None,
+            cheat_sheet_face: None,
+            cheat_legend_faces: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
             bolt: None,
@@ -591,6 +643,7 @@ impl App {
             jack: false,
             bt_connected: false,
             battery: None,
+            battery_warned: None,
             last_led: None,
             powering_off: false,
         }
@@ -628,6 +681,14 @@ impl App {
             app.state.cart = None;
             app.state.cart_platform = None;
         }
+        match Collections::read(root) {
+            Ok(collections) => app.collections = collections,
+            Err(e) => {
+                eprintln!("slot: favorites and recents: {e}, not saving them this session");
+                app.collections_writable = false;
+            }
+        }
+        app.refresh_collections();
         if app.state.clock_set {
             app.start();
         } else {
@@ -675,6 +736,103 @@ impl App {
         }
     }
 
+    fn shelf_of(&self, kind: ShelfKind) -> usize {
+        self.shelves
+            .iter()
+            .position(|(k, _)| *k == kind)
+            .unwrap_or(0)
+    }
+
+    pub fn shelf_kind(&self) -> ShelfKind {
+        self.shelves[self.shelf_at].0
+    }
+
+    pub fn selected_cart(&self) -> Option<&Cart> {
+        self.shelf().carts.get(self.shelf().index)
+    }
+
+    pub fn is_favorite(&self, cart: &Cart) -> bool {
+        self.collections.is_favorite(cart)
+    }
+
+    fn refresh_collections(&mut self) {
+        let favorites = self.collections.favorite_carts(self.carts());
+        let recents = self.collections.recent_carts(self.carts());
+        for (kind, carts) in [
+            (ShelfKind::Favorites, favorites),
+            (ShelfKind::Recents, recents),
+        ] {
+            let at = self.shelf_of(kind);
+            let freed = self.shelves[at].1.replace_carts(carts);
+            self.dropped_faces.extend(freed);
+        }
+        let favorites: std::collections::HashSet<(Platform, String)> = self
+            .collections
+            .favorites
+            .iter()
+            .map(|k| (k.platform, k.stem.clone()))
+            .collect();
+        for (_, shelf) in &mut self.shelves {
+            shelf.set_favorites(favorites.clone());
+        }
+        if self.shelf().carts.is_empty() {
+            if let Some(to) = self.next_shelf(1) {
+                self.shelf_at = to;
+                self.shelf_platform = slot_ui::Printed::default();
+                self.shelf_named = None;
+                self.name_pending = true;
+            }
+        }
+    }
+
+    fn toggle_favorite(&mut self) {
+        let Some(cart) = self.selected_cart().cloned() else {
+            return;
+        };
+        let mut next = self.collections.clone();
+        let added = next.toggle_favorite(&cart);
+        let saved = self.collections_writable
+            && self.root.as_ref().is_none_or(|root| {
+                next.write_favorites(root)
+                    .inspect_err(|e| eprintln!("slot: favorites: {e}"))
+                    .is_ok()
+            });
+        if !saved {
+            return self.refuse();
+        }
+        self.collections = next;
+        self.play_held = None;
+        self.refresh_collections();
+        let toast = match added {
+            true => Toast::FavoriteAdded,
+            false => Toast::FavoriteRemoved,
+        };
+        self.hud.toast(toast, self.now());
+    }
+
+    fn record_recent(&mut self) {
+        let Some(cart) = self.seated_cart().cloned() else {
+            return;
+        };
+        let mut next = self.collections.clone();
+        next.played(&cart);
+        if next != self.collections {
+            if !self.collections_writable {
+                return;
+            }
+            if let Some(root) = &self.root {
+                if let Err(e) = next.write_recents(root) {
+                    eprintln!("slot: recents: {e}");
+                    return;
+                }
+            }
+            self.collections = next;
+            self.refresh_collections();
+        }
+        let at = self.shelf_of(ShelfKind::Recents);
+        self.shelves[at].1.select(0);
+    }
+
     fn shelf(&self) -> &Shelf {
         &self.shelves[self.shelf_at].1
     }
@@ -696,6 +854,9 @@ impl App {
     }
 
     fn jump_letter(&mut self, dir: i32) {
+        if self.shelf_kind() == ShelfKind::Recents {
+            return;
+        }
         match dir > 0 {
             true => self.shelf_mut().jump_next_letter(),
             false => self.shelf_mut().jump_prev_letter(),
@@ -769,10 +930,12 @@ impl App {
             self.shelf_seen = seen;
         }
         let mut letters = std::mem::take(&mut self.letters);
-        slot_ui::shelf_letters(
-            self.shelf().carts.iter().map(|c| c.stem.as_str()),
-            &mut letters,
-        );
+        // Recents is in play order, not A to Z, so it has no letter rail.
+        let stems = match self.shelf_kind() {
+            ShelfKind::Recents => [].iter(),
+            _ => self.shelf().carts.iter(),
+        };
+        slot_ui::shelf_letters(stems.map(|c| c.stem.as_str()), &mut letters);
         let current = self.selected_stem().map(slot_store::initial);
         self.rail.update(&letters, current, dt);
         self.letters = letters;
@@ -818,7 +981,10 @@ impl App {
         self.shelves
             .iter()
             .enumerate()
-            .filter(|(_, (p, _))| platform.is_none_or(|want| *p == want))
+            .filter(|(_, (kind, _))| {
+                kind.platform()
+                    .is_some_and(|p| platform.is_none_or(|want| p == want))
+            })
             .find_map(|(at, (_, shelf))| {
                 shelf
                     .carts
@@ -885,6 +1051,7 @@ impl App {
             QuickRow::FastForward => QuickValue::speed(self.state.ff_speed),
             QuickRow::FastForwardSound => Some(QuickValue::flag(self.state.ff_sound)),
             QuickRow::ColourCorrection => Some(QuickValue::flag(self.state.colour_correction)),
+            QuickRow::PanelCalibration => Some(QuickValue::flag(self.state.panel_calibration)),
             QuickRow::GbPalettes => Some(QuickValue::flag(self.state.gb_palettes)),
             QuickRow::GbaShader => Some(shader_value(self.state.shader_gba)),
             QuickRow::GbShader => Some(shader_value(self.state.shader_gb)),
@@ -892,6 +1059,7 @@ impl App {
             QuickRow::EjectSave => Some(QuickValue::flag(self.state.eject_save)),
             QuickRow::Turbo => Some(QuickValue::flag(self.state.turbo)),
             QuickRow::Rewind => Some(QuickValue::flag(self.state.rewind)),
+            QuickRow::RunAhead => QuickValue::frames(self.state.runahead),
             QuickRow::BtPower => Some(QuickValue::flag(self.state.bluetooth)),
             QuickRow::BtHeadphones => Some(self.headphones_value()),
             QuickRow::WifiPower => Some(QuickValue::flag(self.state.wifi)),
@@ -1156,11 +1324,24 @@ impl App {
         let platform = self.shelves[self.shelf_at].0;
         let fresh = shelves_of(scan(&root).unwrap_or_default());
         let mut dropped = Vec::new();
-        for ((_, shelf), (_, new)) in self.shelves.iter_mut().zip(fresh) {
-            dropped.extend(shelf.restock(new.carts));
+        for ((kind, shelf), (_, new)) in self.shelves.iter_mut().zip(fresh) {
+            if kind.platform().is_some() {
+                dropped.extend(shelf.restock(new.carts));
+            }
+        }
+        // Favorites and Recents follow the fresh scan, with fresh faces too:
+        // a rescan after a label fetch has new labels to show.
+        let favorites = self.collections.favorite_carts(self.carts());
+        let recents = self.collections.recent_carts(self.carts());
+        for (kind, carts) in [
+            (ShelfKind::Favorites, favorites),
+            (ShelfKind::Recents, recents),
+        ] {
+            let at = self.shelf_of(kind);
+            dropped.extend(self.shelves[at].1.restock(carts));
         }
         self.dropped_faces.extend(dropped);
-        let total: usize = self.shelves.iter().map(|(_, s)| s.carts.len()).sum();
+        let total = self.carts().count();
         eprintln!("slot: rescan: {total} carts");
         let here = self.shelves.iter().position(|(p, _)| *p == platform);
         self.shelf_at = here
@@ -1346,6 +1527,14 @@ impl App {
         self.sticker_face = Some(face);
     }
 
+    pub fn set_cheat_sheet_face(&mut self, face: TexId) {
+        self.cheat_sheet_face = Some(face);
+    }
+
+    pub fn set_cheat_legend_faces(&mut self, faces: [(TexId, u32); 3]) {
+        self.cheat_legend_faces = Some(faces);
+    }
+
     pub fn set_clock_faces(&mut self, line: TexId, hint: TexId) {
         self.clock_faces = Some((line, hint));
     }
@@ -1365,6 +1554,12 @@ impl App {
 
     pub fn set_wallpaper(&mut self, face: TexId) {
         self.wallpaper = Some(face);
+    }
+
+    pub fn set_favorite_face(&mut self, face: TexId) {
+        for (_, shelf) in &mut self.shelves {
+            shelf.set_favorite_face(face);
+        }
     }
 
     pub fn set_bolt_face(&mut self, bolt: TexId) {
@@ -1400,9 +1595,10 @@ impl App {
         &self.phase
     }
 
-    pub fn carts(&self) -> impl Iterator<Item = &Cart> {
+    pub fn carts(&self) -> impl Iterator<Item = &Cart> + Clone {
         self.shelves
             .iter()
+            .filter(|(kind, _)| kind.platform().is_some())
             .flat_map(|(_, shelf)| shelf.carts.iter())
     }
 
@@ -1415,7 +1611,14 @@ impl App {
             Phase::Doze { cart: Some(cart) } => cart,
             _ => return None,
         };
-        self.shelf().carts.iter().find(|c| c.stem == *stem)
+        self.shelf_cart(stem)
+    }
+
+    fn shelf_cart(&self, stem: &str) -> Option<&Cart> {
+        match self.selected_cart() {
+            Some(c) if c.stem == stem => Some(c),
+            _ => self.shelf().carts.iter().find(|c| c.stem == stem),
+        }
     }
 
     pub fn single_cart(&self) -> bool {
@@ -1712,6 +1915,14 @@ impl App {
         self.state.ff_sound
     }
 
+    pub fn runahead(&self) -> u8 {
+        self.state.runahead
+    }
+
+    pub fn runahead_in_play(&self) -> u8 {
+        runahead_for(self.core, self.platform, self.state.runahead)
+    }
+
     pub fn screen_shader(&self) -> Shader {
         match self.platform {
             Platform::Gba => self.state.shader_gba,
@@ -1782,6 +1993,10 @@ impl App {
         self.link_player
     }
 
+    pub fn panel_calibration(&self) -> bool {
+        self.state.panel_calibration
+    }
+
     pub fn take_colour_correction(&mut self) -> Option<bool> {
         self.colour_pending.take()
     }
@@ -1822,11 +2037,7 @@ impl App {
             Some(GameMenu::Working { since, .. }) => since,
             _ => self.now(),
         };
-        self.start_link_from(
-            LinkStarter::spawn(reload.role.role(), link_port()),
-            reload.role.client_id(),
-            since,
-        );
+        self.start_link_from(self.spawn_link(reload.role), reload.role.client_id(), since);
     }
 
     pub fn link_reload_failed(&mut self) {
@@ -1925,6 +2136,7 @@ impl App {
                     self.open_core_picker()
                 }
                 _ if self.core_picker.is_some() => self.core_picker_input(action),
+                Action::GbaDown(Btn::Y) => self.toggle_favorite(),
                 Action::GbaDown(Btn::Up) => self.jump_letter(-1),
                 Action::GbaDown(Btn::Down) => self.jump_letter(1),
                 Action::ShelfLeft | Action::GbaDown(Btn::Left) => self.shelf_mut().hold_left(now),
@@ -1979,6 +2191,22 @@ impl App {
                 self.phase = Phase::QuickMenu {
                     row: QuickRow::About,
                 }
+            }
+            Phase::About if action == Action::GbaDown(Btn::A) => {
+                self.phase = Phase::CheatSheet { page: 0 };
+            }
+            Phase::CheatSheet { page } => {
+                let pages = cheat_pages(self.pure).len();
+                self.phase = match action {
+                    Action::GbaDown(Btn::Left | Btn::L1) => Phase::CheatSheet {
+                        page: (page + pages - 1) % pages,
+                    },
+                    Action::GbaDown(Btn::Right | Btn::R1) => Phase::CheatSheet {
+                        page: (page + 1) % pages,
+                    },
+                    Action::GbaDown(Btn::B) | Action::QuickMenu => Phase::About,
+                    _ => return,
+                };
             }
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::WifiSetup { .. } => self.wifi_setup_input(action),
@@ -2040,11 +2268,13 @@ impl App {
             | QuickRow::FastForward
             | QuickRow::FastForwardSound
             | QuickRow::ColourCorrection
+            | QuickRow::PanelCalibration
             | QuickRow::GbaShader
             | QuickRow::GbShader
             | QuickRow::GbPalettes
             | QuickRow::BtPower
             | QuickRow::WifiPower
+            | QuickRow::RunAhead
             | QuickRow::Rumble => {}
             QuickRow::WifiDrive => self.toggle_drive(),
             QuickRow::WifiArt => self.fetch_art(),
@@ -2418,6 +2648,7 @@ impl App {
                 s.colour_correction = !s.colour_correction;
                 self.colour_pending = Some(s.colour_correction);
             }
+            QuickRow::PanelCalibration => s.panel_calibration = !s.panel_calibration,
             QuickRow::GbaShader => {
                 let to = s.shader_gba.step(&Shader::GBA, right);
                 if to == s.shader_gba {
@@ -2464,6 +2695,10 @@ impl App {
             | QuickRow::Cheevos
             | QuickRow::WifiNetwork => return,
             QuickRow::WifiDrive => return self.toggle_drive(),
+            QuickRow::RunAhead => {
+                let n = RUN_AHEAD_MAX + 1;
+                s.runahead = (s.runahead + if right { 1 } else { n - 1 }) % n;
+            }
         }
         self.persist();
     }
@@ -2754,7 +2989,11 @@ impl App {
                 self.link_loaded = None;
             }
             self.resume_unspent = seated.is_some();
+            let started = seated.is_some();
             self.record_cart(seated);
+            if started {
+                self.record_recent();
+            }
         }
         self.step_screen(dt);
     }
@@ -3139,6 +3378,17 @@ impl App {
             Phase::About => {
                 draw_backdrop(self.wallpaper, out);
                 draw_sticker(self.sticker_face, out);
+                if let Some([back, _, help]) = self.cheat_legend_faces {
+                    draw_legend(&[back, help], out);
+                }
+                return;
+            }
+            Phase::CheatSheet { .. } => {
+                let legend = self
+                    .cheat_legend_faces
+                    .map(|[back, page, _]| vec![back, page])
+                    .unwrap_or_default();
+                draw_cheat_sheet(self.cheat_sheet_face, &legend, out);
                 return;
             }
             Phase::WifiSetup { .. } => {
@@ -3499,8 +3749,15 @@ impl App {
         });
         if let Some(sprites) = &self.link_sprites {
             crate::link_screen::draw_link_art(menu, self.link_hardware, self.now(), sprites, out);
+            // Which network the link uses: the one highlighted on the first step, then the
+            // one picked there.
+            crate::link_screen::draw_network_label(menu, self.link_home, sprites, out);
         }
         let line = match menu {
+            GameMenu::Network { home, .. } => self
+                .link_menu_faces
+                .get(LinkRow::ALL.len() + usize::from(!home))
+                .copied(),
             GameMenu::Pick(role) => self.link_menu_faces.get(role.index()).copied(),
             GameMenu::Working { step, .. } => self
                 .link_step_faces
@@ -3524,12 +3781,20 @@ impl App {
         }
         let switchable = self.seated().is_some_and(|stem| self.link_switchable(stem));
         let keys: &[LinkLegend] = match menu {
+            GameMenu::Network { .. } => &[LinkLegend::Cancel, LinkLegend::Swap, LinkLegend::Next],
             GameMenu::Pick(_) if switchable => &[
-                LinkLegend::Cancel,
+                if self.net_live() {
+                    LinkLegend::Back
+                } else {
+                    LinkLegend::Cancel
+                },
                 LinkLegend::Mode,
                 LinkLegend::Swap,
                 LinkLegend::Link,
             ],
+            GameMenu::Pick(_) if self.net_live() => {
+                &[LinkLegend::Back, LinkLegend::Swap, LinkLegend::Link]
+            }
             GameMenu::Pick(_) => &[LinkLegend::Cancel, LinkLegend::Swap, LinkLegend::Link],
             GameMenu::Working { .. } => &[LinkLegend::Cancel],
             GameMenu::Linked { opened: true, .. } => &[LinkLegend::Back, LinkLegend::EndLink],
@@ -3559,7 +3824,7 @@ impl App {
     }
 
     fn auto_link(&self, stem: &str) -> Option<(&Cart, LinkKind)> {
-        let cart = self.shelf().carts.iter().find(|c| c.stem == stem)?;
+        let cart = self.shelf_cart(stem)?;
         let auto = link_kind(&cart.code, &cart.title, slot_store::header_clean(&cart.rom));
         Some((cart, auto))
     }
@@ -3581,12 +3846,14 @@ impl App {
             return;
         }
         let at = self.shelf().index;
-        let Some(cart) = self.shelf_mut().carts.get_mut(at).map(|c| {
+        let Some(read) = self.shelf_mut().carts.get_mut(at).map(|c| {
             c.read_header();
-            c.stem.clone()
+            c.clone()
         }) else {
             return;
         };
+        self.share_header(&read);
+        let cart = read.stem;
         eprintln!(
             "slot: launch: insert {cart} at {:.1} ms",
             crate::boot_time::ms()
@@ -3601,6 +3868,17 @@ impl App {
             resumed: false,
             clean,
         };
+    }
+
+    fn share_header(&mut self, read: &Cart) {
+        for (_, shelf) in &mut self.shelves {
+            for c in &mut shelf.carts {
+                if c.platform == read.platform && c.stem == read.stem {
+                    c.title.clone_from(&read.title);
+                    c.code.clone_from(&read.code);
+                }
+            }
+        }
     }
 
     pub fn starting_clean(&self) -> bool {
@@ -3872,7 +4150,7 @@ impl App {
             }
             self.link_hardware = LinkKind::Cable;
             self.radio.ask(RadioJob::Warm);
-            self.game_menu = Some(GameMenu::Pick(self.last_role));
+            self.open_link_picker();
             return;
         }
         if self.platform != Platform::Gba {
@@ -3896,7 +4174,21 @@ impl App {
             .map_or(LinkKind::Cable, |stem| self.link_mode(stem).0);
         self.link_hardware = hardware;
         self.radio.ask(RadioJob::Warm);
-        self.game_menu = Some(GameMenu::Pick(self.last_role));
+        self.open_link_picker();
+    }
+
+    /// With home Wi-Fi connected the player first picks the network, then Host or Join.
+    /// Without it there is only the direct network, so the picker opens on Host or Join.
+    fn open_link_picker(&mut self) {
+        self.game_menu = Some(if self.net_live() {
+            GameMenu::Network {
+                home: self.link_home,
+                role: self.last_role,
+            }
+        } else {
+            self.link_home = false;
+            GameMenu::Pick(self.last_role)
+        });
     }
 
     fn game_menu_shortcut(&mut self) {
@@ -3945,6 +4237,17 @@ impl App {
             return;
         };
         match menu {
+            GameMenu::Network { home, role } => match action {
+                Action::GbaDown(Btn::Left) | Action::GbaDown(Btn::Right) => {
+                    self.game_menu = Some(GameMenu::Network { home: !home, role });
+                }
+                Action::GbaDown(Btn::A) => {
+                    self.link_home = home;
+                    self.game_menu = Some(GameMenu::Pick(role));
+                }
+                Action::GbaDown(Btn::B) | Action::GameMenu => self.close_game_menu(),
+                _ => {}
+            },
             GameMenu::Pick(role) => match action {
                 Action::GbaDown(Btn::Left) | Action::GbaDown(Btn::Right) => {
                     self.last_role = role.other();
@@ -3952,6 +4255,12 @@ impl App {
                 }
                 Action::GbaDown(Btn::Select) => self.switch_hardware(),
                 Action::GbaDown(Btn::A) => self.pick_link(role),
+                Action::GbaDown(Btn::B) if self.net_live() => {
+                    self.game_menu = Some(GameMenu::Network {
+                        home: self.link_home,
+                        role,
+                    });
+                }
                 Action::GbaDown(Btn::B) | Action::GameMenu => self.close_game_menu(),
                 _ => {}
             },
@@ -4017,6 +4326,12 @@ impl App {
         })
     }
 
+    /// The real starter for this cart, which names its game to the other handheld by header code.
+    fn spawn_link(&self, role: LinkRow) -> LinkStarter {
+        let game = self.seated_cart().map_or("", |c| c.code.as_str());
+        LinkStarter::spawn(role.role(), link_port(), game, self.link_home)
+    }
+
     fn pick_link(&mut self, role: LinkRow) {
         let Some(stem) = self.seated().map(str::to_string) else {
             return;
@@ -4025,10 +4340,7 @@ impl App {
         if self.core == Core::Mgba {
             let player = role.client_id() as u8;
             if self.link_player == Some(player) {
-                return self.start_link(
-                    LinkStarter::spawn(role.role(), link_port()),
-                    role.client_id(),
-                );
+                return self.start_link(self.spawn_link(role), role.client_id());
             }
             if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {
                 return self.refuse();
@@ -4052,10 +4364,7 @@ impl App {
         }
         let (_, serial) = self.link_mode(&stem);
         if serial == loaded {
-            return self.start_link(
-                LinkStarter::spawn(role.role(), link_port()),
-                role.client_id(),
-            );
+            return self.start_link(self.spawn_link(role), role.client_id());
         }
         if self.snapshot.as_ref().is_some_and(|s| !s.resume_trusted()) {
             return self.refuse();
@@ -4183,6 +4492,7 @@ impl App {
     }
 
     pub fn on_battery(&mut self, b: Battery) {
+        self.warn_battery(b);
         if b.percent > BATTERY_CRITICAL || self.powering_off {
             return;
         }
@@ -4191,6 +4501,28 @@ impl App {
         }
         self.flush_resume();
         self.begin_power_off();
+    }
+
+    fn warn_battery(&mut self, b: Battery) {
+        if matches!(b.charge, Charge::Charging | Charge::Full) {
+            self.battery_warned = None;
+            return;
+        }
+        if b.percent <= BATTERY_CRITICAL
+            || self.shutting_down()
+            || matches!(self.phase, Phase::Doze { .. })
+        {
+            return;
+        }
+        let due = BATTERY_WARNINGS
+            .iter()
+            .filter(|(level, _)| b.percent <= *level)
+            .rfind(|(level, _)| self.battery_warned.is_none_or(|w| *level < w))
+            .copied();
+        if let Some((level, toast)) = due {
+            self.battery_warned = Some(level);
+            self.hud.toast(toast, self.now());
+        }
     }
 
     /// The doze timeout powers off only a handheld that cannot sleep in RAM,
@@ -4621,6 +4953,13 @@ fn shader_value(shader: Shader) -> QuickValue {
         Shader::Crt => QuickValue::Crt,
         Shader::CurvedCrt => QuickValue::CurvedCrt,
         Shader::Lcd3xBright => QuickValue::Lcd3xBright,
+    }
+}
+
+pub fn runahead_for(core: Core, platform: Platform, frames: u8) -> u8 {
+    match (core, platform) {
+        (Core::Mgba, Platform::Gba) => frames,
+        _ => 0,
     }
 }
 
